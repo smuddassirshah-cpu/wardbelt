@@ -9,10 +9,13 @@ import {
   isoPlus,
   patientFresh,
   patientPreOp,
+  patientRecovery,
 } from '../../fixtures/synthetic';
 import {
   factoryFiring,
   factoryThrowing,
+  failNextClears,
+  failNextCursorDeletes,
   failNextPuts,
   freshFactory,
   harness,
@@ -20,6 +23,7 @@ import {
   rawGetAll,
   rawOpen,
   rawPut,
+  unhandledRejectionsDuring,
   type Harness,
 } from './helpers';
 
@@ -405,6 +409,25 @@ describe('load with corrupt rows', () => {
     expect(h.notices).toEqual([]);
   });
 
+  it('drops a settings row keyed __proto__ instead of letting it reach the prototype chain', async () => {
+    const injected = { lastExportAt: FIXED_NOW_ISO, theme: 'dark', purgeDays: 7 };
+    const { factory, name } = await seedRaw([
+      { store: 'settings', value: { key: 'sound', value: true } },
+      { store: 'settings', value: { key: '__proto__', value: injected } },
+      { store: 'settings', value: { key: 'constructor', value: injected } },
+    ]);
+    const h = harness();
+    const repo = await open(h, factory, name);
+    opened.push(repo);
+    const loaded = await repo.load();
+    expect(loaded.settings).toEqual({ ...DEFAULT_SETTINGS, sound: true });
+    expect('lastExportAt' in loaded.settings).toBe(false);
+    expect(Object.getPrototypeOf(loaded.settings)).toBe(Object.prototype);
+    expect(loaded.corrupt).toBe(0);
+    expect(loaded.rawCorrupt).toEqual([]);
+    expect(h.notices).toEqual([]);
+  });
+
   it('treats a settings row whose key is not a string as corrupt', async () => {
     const { factory, name } = await seedRaw([
       { store: 'settings', value: { key: 'theme', value: 'dark' } },
@@ -418,6 +441,110 @@ describe('load with corrupt rows', () => {
     expect(loaded.corrupt).toBe(1);
     expect(loaded.rawCorrupt).toHaveLength(2);
     expect(h.notices).toEqual([{ kind: 'corrupt', count: 1 }]);
+  });
+});
+
+describe('multi-request transactions are atomic', () => {
+  async function seedRecovery(repo: Repo): Promise<void> {
+    await repo.savePatient(patientRecovery());
+    for (const e of fixtureEvents()) {
+      await repo.appendEvent(e);
+    }
+  }
+
+  async function expectDeleteRolledBackThenFlushed(
+    repo: Repo,
+    h: Harness,
+    reasonPart: string,
+  ): Promise<void> {
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await repo.deletePatient('p-recovery');
+    });
+    expect(unhandled).toEqual([]);
+    vi.restoreAllMocks();
+    expect(h.waits).toEqual([5]);
+    expect(h.notices).toHaveLength(1);
+    const failed = h.notices[0];
+    expect(failed).toMatchObject({ kind: 'write_failed' });
+    if (failed?.kind === 'write_failed') {
+      expect(failed.reason).toContain(reasonPart);
+    }
+    const intact = await repo.load();
+    expect(intact.patients).toEqual([patientRecovery()]);
+    expect(intact.events).toEqual(fixtureEvents());
+
+    await repo.savePatient(patientFresh());
+    expect(h.notices.map((n) => n.kind)).toEqual(['write_failed', 'recovered']);
+    const after = await repo.load();
+    expect(after.patients).toEqual([patientFresh()]);
+    expect(after.events).toEqual([]);
+  }
+
+  it('deletePatient rolls back entirely when a cursor delete throws synchronously', async () => {
+    const h = harness();
+    const repo = await open(h, freshFactory(), uniqueName());
+    opened.push(repo);
+    await seedRecovery(repo);
+    const spy = failNextCursorDeletes(2, quotaError(), true);
+    await expectDeleteRolledBackThenFlushed(repo, h, 'QuotaExceededError: quota');
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('deletePatient rolls back entirely when a cursor delete request errors', async () => {
+    const h = harness();
+    const repo = await open(h, freshFactory(), uniqueName());
+    opened.push(repo);
+    await seedRecovery(repo);
+    const spy = failNextCursorDeletes(2, quotaError());
+    await expectDeleteRolledBackThenFlushed(repo, h, 'QuotaExceededError');
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('saveSettings keeps the previous rows when a put throws after the clear', async () => {
+    const h = harness();
+    const repo = await open(h, freshFactory(), uniqueName());
+    opened.push(repo);
+    await repo.saveSettings(FIXTURE_SETTINGS);
+    const next = { ...FIXTURE_SETTINGS, theme: 'dark' as const, lastExportAt: FIXED_NOW_ISO };
+    failNextPuts(2, new DOMException('cannot clone', 'DataCloneError'), true);
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await repo.saveSettings(next);
+    });
+    expect(unhandled).toEqual([]);
+    expect(h.notices.map((n) => n.kind)).toEqual(['write_failed']);
+    expect((await repo.load()).settings).toEqual(FIXTURE_SETTINGS);
+
+    await repo.appendEvent(nth(fixtureEvents(), 0));
+    expect(h.notices.map((n) => n.kind)).toEqual(['write_failed', 'recovered']);
+    expect((await repo.load()).settings).toEqual(next);
+  });
+
+  it('clearAll leaves every store intact when a clear fails, then applies on flush', async () => {
+    const h = harness();
+    const repo = await open(h, freshFactory(), uniqueName());
+    opened.push(repo);
+    await seedAll(repo);
+    const spy = failNextClears(2, quotaError(), true);
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await repo.clearAll();
+    });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(unhandled).toEqual([]);
+    expect(h.notices.map((n) => n.kind)).toEqual(['write_failed']);
+    const intact = await repo.load();
+    expect(byId(intact.patients)).toEqual(byId(allFixturePatients()));
+    expect(intact.events).toEqual(fixtureEvents());
+    expect(intact.settings).toEqual({ ...FIXTURE_SETTINGS, lastExportAt: FIXED_NOW_ISO });
+
+    await repo.savePatient(patientFresh());
+    expect(h.notices.map((n) => n.kind)).toEqual(['write_failed', 'recovered']);
+    expect(await repo.load()).toEqual({
+      patients: [patientFresh()],
+      events: [],
+      settings: DEFAULT_SETTINGS,
+      corrupt: 0,
+      rawCorrupt: [],
+    });
   });
 });
 

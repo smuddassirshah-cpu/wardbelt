@@ -51,7 +51,24 @@ export function factoryThrowing(err: unknown): IDBFactory {
 }
 
 interface FakeTransaction {
-  _execRequestAsync(o: { operation: () => unknown; source: unknown }): IDBRequest<IDBValidKey>;
+  _execRequestAsync<T>(o: { operation: () => T; source: unknown }): IDBRequest<T>;
+}
+
+/** A genuine fake-indexeddb request that fails with `error` and so aborts its transaction. */
+function erroringRequest<T>(
+  tx: IDBTransaction | null,
+  source: unknown,
+  error: DOMException,
+): IDBRequest<T> {
+  if (tx === null) {
+    throw new Error('request has no transaction');
+  }
+  return (tx as unknown as FakeTransaction)._execRequestAsync<T>({
+    operation: () => {
+      throw error;
+    },
+    source,
+  });
 }
 
 /**
@@ -66,13 +83,35 @@ export function failNextPuts(count: number, error: DOMException, sync = false) {
       if (sync) {
         throw error;
       }
-      const tx = this.transaction as unknown as FakeTransaction;
-      return tx._execRequestAsync({
-        operation: () => {
-          throw error;
-        },
-        source: this,
-      });
+      return erroringRequest(this.transaction, this, error);
+    });
+  }
+  return spy;
+}
+
+/** Same as `failNextPuts` for object-store clears. */
+export function failNextClears(count: number, error: DOMException, sync = false) {
+  const spy = vi.spyOn(IDBObjectStore.prototype, 'clear');
+  for (let i = 0; i < count; i += 1) {
+    spy.mockImplementationOnce(function (this: IDBObjectStore) {
+      if (sync) {
+        throw error;
+      }
+      return erroringRequest(this.transaction, this, error);
+    });
+  }
+  return spy;
+}
+
+/** Same as `failNextPuts` for the cursor deletes that `deletePatient` issues mid-transaction. */
+export function failNextCursorDeletes(count: number, error: DOMException, sync = false) {
+  const spy = vi.spyOn(IDBCursor.prototype, 'delete');
+  for (let i = 0; i < count; i += 1) {
+    spy.mockImplementationOnce(function (this: IDBCursor) {
+      if (sync) {
+        throw error;
+      }
+      return erroringRequest(this.request.transaction, this, error);
     });
   }
   return spy;
@@ -80,6 +119,33 @@ export function failNextPuts(count: number, error: DOMException, sync = false) {
 
 export function quotaError(): DOMException {
   return new DOMException('quota', 'QuotaExceededError');
+}
+
+/**
+ * Records every unhandled promise rejection raised while `run` executes, then lets the task queue
+ * drain twice so a rejection settled by a queued IndexedDB event is not missed. Vitest fails the
+ * run on these anyway; capturing them keeps the assertion next to the behaviour under test.
+ */
+export async function unhandledRejectionsDuring(run: () => Promise<void>): Promise<unknown[]> {
+  const seen: unknown[] = [];
+  const record = (reason: unknown): void => {
+    seen.push(reason);
+  };
+  process.on('unhandledRejection', record);
+  try {
+    await run();
+    await flushTasks();
+    await flushTasks();
+  } finally {
+    process.off('unhandledRejection', record);
+  }
+  return seen;
+}
+
+function flushTasks(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
 }
 
 /** Collects every notice the repo emits; `wait` resolves at once and records the delays. */

@@ -10,8 +10,15 @@
 // read failure. Events are read from the store rather than the `at` index because the index
 // cannot see rows whose `at` is not a valid key, and those are exactly the corrupt rows that
 // must be counted and kept; the validated rows are then sorted by (at, id), which is the
-// index order, at O(n log n). Settings are one logical record assembled from the rows: missing
-// rows take defaults, any invalid value marks the whole record corrupt and keeps every row.
+// index order, at O(n log n). Settings are one logical record assembled from the rows: only
+// known keys are copied (an unknown key, `__proto__` included, is dropped rather than reaching
+// the object), missing rows take defaults, any invalid value marks the whole record corrupt and
+// keeps every row. Multi-request transactions run through `inTransaction`: a throw between
+// requests would otherwise leave the transaction idle so it auto-commits half-applied, and the
+// eagerly created `tx.done` promise must always be observed or an abort surfaces as an
+// unhandled rejection. Requests inside one transaction are awaited one at a time (never more
+// than six) because idb does not observe request promises itself: a request left pending when
+// a sibling throws would reject unhandled when the transaction aborts.
 import { DEFAULT_SETTINGS, type Event, type Patient, type Settings } from '../domain/types';
 import { validateEvent, validatePatientRecord, validateSettings } from '../domain/validate';
 import { DB_NAME, openDatabase, type Db, type SettingsRow } from './db';
@@ -60,6 +67,8 @@ const SETTINGS_KEYS = [
   'lastExportAt',
 ] as const satisfies readonly (keyof Settings)[];
 
+const KNOWN_SETTINGS_KEYS: ReadonlySet<string> = new Set(SETTINGS_KEYS);
+
 interface RawStore {
   patients: unknown[];
   events: unknown[];
@@ -107,54 +116,83 @@ function defaultWait(ms: number): Promise<void> {
   });
 }
 
+interface Tx {
+  readonly done: Promise<void>;
+  readonly error: DOMException | null;
+  abort(): void;
+}
+
+/**
+ * Runs `body` inside `tx` and settles with `tx.done`. A failed request aborts the transaction on
+ * its own and sets `error`; a throw from anywhere else (a method throwing synchronously between
+ * requests) leaves it idle and about to auto-commit, so it is aborted here. Either way `done`
+ * rejects with the same failure that `body` threw, so it is observed and `body`'s error is the
+ * one propagated.
+ */
+async function inTransaction<T>(tx: Tx, body: () => Promise<T>): Promise<T> {
+  let result: T;
+  try {
+    result = await body();
+  } catch (e) {
+    if (tx.error === null) {
+      tx.abort();
+    }
+    await tx.done.then(noop, noop);
+    throw e;
+  }
+  await tx.done;
+  return result;
+}
+
 class IdbBackend implements Backend {
   constructor(private readonly db: Db) {}
 
-  async readAll(): Promise<RawStore> {
+  readAll(): Promise<RawStore> {
     const tx = this.db.transaction(['patients', 'events', 'settings']);
-    const [patients, events, settings] = await Promise.all([
-      tx.objectStore('patients').getAll(),
-      tx.objectStore('events').getAll(),
-      tx.objectStore('settings').getAll(),
-      tx.done,
-    ]);
-    return { patients, events, settings };
+    return inTransaction(tx, async () => ({
+      patients: await tx.objectStore('patients').getAll(),
+      events: await tx.objectStore('events').getAll(),
+      settings: await tx.objectStore('settings').getAll(),
+    }));
   }
 
   async putPatient(p: Patient): Promise<void> {
     await this.db.put('patients', p);
   }
 
-  async deletePatient(id: string): Promise<void> {
+  deletePatient(id: string): Promise<void> {
     const tx = this.db.transaction(['patients', 'events'], 'readwrite');
-    await tx.objectStore('patients').delete(id);
-    for await (const cursor of tx.objectStore('events')) {
-      if (cursor.value.patientId === id) {
-        await cursor.delete();
+    return inTransaction(tx, async () => {
+      await tx.objectStore('patients').delete(id);
+      for await (const cursor of tx.objectStore('events')) {
+        if (cursor.value.patientId === id) {
+          await cursor.delete();
+        }
       }
-    }
-    await tx.done;
+    });
   }
 
   async putEvent(e: Event): Promise<void> {
     await this.db.put('events', e);
   }
 
-  async putSettings(rows: SettingsRow[]): Promise<void> {
+  putSettings(rows: SettingsRow[]): Promise<void> {
     const tx = this.db.transaction('settings', 'readwrite');
-    await tx.store.clear();
-    await Promise.all(rows.map((row) => tx.store.put(row)));
-    await tx.done;
+    return inTransaction(tx, async () => {
+      await tx.store.clear();
+      for (const row of rows) {
+        await tx.store.put(row);
+      }
+    });
   }
 
-  async clear(): Promise<void> {
+  clear(): Promise<void> {
     const tx = this.db.transaction(['patients', 'events', 'settings'], 'readwrite');
-    await Promise.all([
-      tx.objectStore('patients').clear(),
-      tx.objectStore('events').clear(),
-      tx.objectStore('settings').clear(),
-      tx.done,
-    ]);
+    return inTransaction(tx, async () => {
+      await tx.objectStore('patients').clear();
+      await tx.objectStore('events').clear();
+      await tx.objectStore('settings').clear();
+    });
   }
 
   close(): void {
@@ -285,10 +323,10 @@ class RepoImpl implements Repo {
       const assembled: Record<string, unknown> = { ...DEFAULT_SETTINGS };
       let wellFormed = true;
       for (const row of raw.settings) {
-        if (isRow(row)) {
-          assembled[row.key] = row.value;
-        } else {
+        if (!isRow(row)) {
           wellFormed = false;
+        } else if (KNOWN_SETTINGS_KEYS.has(row.key)) {
+          assembled[row.key] = row.value;
         }
       }
       const r = validateSettings(assembled);
