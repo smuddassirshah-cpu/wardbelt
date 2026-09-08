@@ -1,0 +1,47 @@
+{
+  "name": "wardbelt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-first PWA task tracker for a veterinary surgical ward shift",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sw.json --noEmit",
+    "lint": "eslint . --max-warnings 0 && prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "icons": "node scripts/icons.mjs",
+    "ci": "npm run lint && npm run typecheck && npm test && npm run build && npm run test:e2e"
+  },
+  "dependencies": {
+    "@preact/signals": "2.11.2",
+    "idb": "8.0.3",
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
+    "@testing-library/preact": "3.2.4",
+    "@types/node": "22.20.1",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "10.10.0",
+    "fake-indexeddb": "6.2.5",
+    "jsdom": "29.1.1",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0",
+    "vite": "7.3.6",
+    "vite-plugin-pwa": "1.3.0",
+    "vitest": "4.1.11",
+    "workbox-precaching": "7.4.1",
+    "workbox-routing": "7.4.1"
+  }
+}
