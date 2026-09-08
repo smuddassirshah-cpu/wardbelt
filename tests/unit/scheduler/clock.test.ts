@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createFakeClock, realClock } from '../../../src/scheduler/clock';
 import { FIXED_NOW_MS } from '../../fixtures/synthetic';
 
@@ -134,14 +134,19 @@ describe('createFakeClock', () => {
 });
 
 describe('realClock', () => {
-  it('reads Date.now and hands out timer ids that clear cleanly', () => {
+  it('reads Date.now and delegates to the window timers without arming one here', () => {
     const before = Date.now();
     const now = realClock.now();
     expect(now).toBeGreaterThanOrEqual(before);
     expect(now).toBeLessThanOrEqual(Date.now());
-    const fired: number[] = [];
-    const id = realClock.setTimeout(() => fired.push(1), 600_000);
+    const win: Window = window;
+    const setSpy = vi.spyOn(win, 'setTimeout').mockImplementation(() => 42);
+    const clearSpy = vi.spyOn(win, 'clearTimeout').mockImplementation(() => undefined);
+    const fn = (): void => undefined;
+    const id = realClock.setTimeout(fn, 600_000);
+    expect(id).toBe(42);
+    expect(setSpy).toHaveBeenCalledExactlyOnceWith(fn, 600_000);
     realClock.clearTimeout(id);
-    expect(fired).toEqual([]);
+    expect(clearSpy).toHaveBeenCalledExactlyOnceWith(42);
   });
 });

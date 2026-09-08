@@ -382,6 +382,69 @@ describe('createTimers: due sweep', () => {
     expect(h.batches).toHaveLength(2);
   });
 
+  it('re-notifies a task completed and undone within a single tick window', () => {
+    const dueAt = new Date(FIXED_NOW_MS + 30_000).toISOString();
+    const todo = withTasks('p-un', FORM_DOG, [timedTask('p-un:t', 'Check', dueAt)]);
+    const done = withTasks('p-un', FORM_DOG, [timedTask('p-un:t', 'Check', dueAt, 'done')]);
+    const h = harness([todo]);
+    h.timers.start();
+    h.clock.advance(30_000);
+    expect(h.dues()).toHaveLength(1);
+    expect(h.batches).toHaveLength(1);
+    h.setPatients([done]);
+    h.timers.reschedule();
+    h.clock.advance(3_000);
+    h.setPatients([todo]);
+    h.timers.reschedule();
+    expect(h.clock.pending()).toBe(1);
+    h.clock.advance(2 * MIN);
+    expect(h.dues()).toEqual([
+      { type: 'DUE', patientId: 'p-un', taskId: 'p-un:t', now: FIXED_NOW_MS + 30_000 },
+      { type: 'DUE', patientId: 'p-un', taskId: 'p-un:t', now: FIXED_NOW_MS + 33_000 },
+    ]);
+    expect(h.batches).toHaveLength(2);
+    expect(h.batches[1]?.[0]?.taskId).toBe('p-un:t');
+    h.clock.advance(5 * MIN);
+    expect(h.batches).toHaveLength(2);
+  });
+
+  it('re-notifies a task whose dueAt moves away and back within a single tick window', () => {
+    const first = new Date(FIXED_NOW_MS + 30_000).toISOString();
+    const second = new Date(FIXED_NOW_MS + 10 * MIN).toISOString();
+    const h = harness([withTasks('p-mv', FORM_CAT, [timedTask('p-mv:t', 'Check', first)])]);
+    h.timers.start();
+    h.clock.advance(30_000);
+    expect(h.batches).toHaveLength(1);
+    h.setPatients([withTasks('p-mv', FORM_CAT, [timedTask('p-mv:t', 'Check', second)])]);
+    h.timers.reschedule();
+    h.clock.advance(3_000);
+    h.setPatients([withTasks('p-mv', FORM_CAT, [timedTask('p-mv:t', 'Check', first)])]);
+    h.timers.reschedule();
+    expect(h.clock.pending()).toBe(1);
+    h.clock.advance(0);
+    expect(h.batches).toHaveLength(2);
+    expect(h.batches[1]?.[0]?.dueAt).toBe(first);
+    expect(h.dues().map((d) => d.now)).toEqual([FIXED_NOW_MS + 30_000, FIXED_NOW_MS + 33_000]);
+    h.clock.advance(15 * MIN);
+    expect(h.batches).toHaveLength(2);
+  });
+
+  it('forgets an announced task once it is completed, so a later undo announces it fresh', () => {
+    const overdue = isoPlus(FIXED_NOW_ISO, -5);
+    const todo = withTasks('p-fg', FORM_RABBIT, [timedTask('p-fg:t', 'Check', overdue)]);
+    const done = withTasks('p-fg', FORM_RABBIT, [timedTask('p-fg:t', 'Check', overdue, 'done')]);
+    const h = harness([todo]);
+    h.timers.start();
+    h.timers.onVisible();
+    expect(h.batches).toHaveLength(1);
+    h.setPatients([done]);
+    h.timers.reschedule();
+    h.setPatients([todo]);
+    h.timers.onVisible();
+    expect(h.batches).toHaveLength(2);
+    expect(h.dues()).toHaveLength(2);
+  });
+
   it('announces a task added with a past dueAt on the next reschedule without a busy loop', () => {
     const h = harness([patientFresh()]);
     h.timers.start();
