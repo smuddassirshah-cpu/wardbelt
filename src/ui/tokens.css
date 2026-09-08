@@ -1,0 +1,106 @@
+/*
+ * Decision notes: the only place colours, spacing, type, radii and motion are defined
+ * (PLAN.md section 10 "Visual system"). Light literals are binding. Dark accent, warning and
+ * danger are lightened until each passes 4.5:1 against both the dark background and the dark
+ * surface (tests/unit/ui/contrast.test.ts computes the ratios). The done-cell glyph is white
+ * in light; in dark a lightened accent cannot carry white at 4.5:1, so the glyph uses the dark
+ * background colour. The light warning literal #B7791F is 3.5:1 on the background, so it is
+ * reserved for non-text use (borders, bars, outlines: WCAG 1.4.11 needs 3:1) and
+ * --colour-warning-text carries warning-toned text at 4.5:1 or better.
+ */
+:root {
+  color-scheme: light;
+
+  --colour-bg: #fafaf9;
+  --colour-surface: #ffffff;
+  --colour-ink: #111111;
+  --colour-ink-muted: #6b6b6b;
+  --colour-hairline: rgba(17, 17, 17, 0.15);
+  --colour-hatch: rgba(17, 17, 17, 0.3);
+  --colour-scrim: rgba(17, 17, 17, 0.4);
+  --colour-accent: #0f6e56;
+  --colour-on-accent: #ffffff;
+  --colour-warning: #b7791f;
+  --colour-warning-text: #8f5e10;
+  --colour-danger: #b42318;
+
+  --font-sans: system-ui, -apple-system, Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Roboto Mono', monospace;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+  --weight-regular: 400;
+  --weight-semibold: 600;
+  --leading: 1.4;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius: 0;
+  --radius-cell: 2px;
+  --hairline: 1px;
+  --outline-current: 2px;
+
+  --target: 48px;
+  --row-height: 88px;
+  --cell: 24px;
+  --cell-gap: 4px;
+  --phase-gap: 8px;
+  --progress-height: 2px;
+
+  --motion-fill: 120ms;
+  --motion-progress: 200ms;
+  --motion-sheet: 200ms;
+  --motion-sweep: 400ms;
+  --motion-pulse-period: 2000ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --colour-bg: #121212;
+    --colour-surface: #1a1a1a;
+    --colour-ink: #f2f2f2;
+    --colour-ink-muted: #9a9a9a;
+    --colour-hairline: rgba(242, 242, 242, 0.15);
+    --colour-hatch: rgba(242, 242, 242, 0.3);
+    --colour-scrim: rgba(0, 0, 0, 0.6);
+    --colour-accent: #3fb48f;
+    --colour-on-accent: #121212;
+    --colour-warning: #e0a83a;
+    --colour-warning-text: #e0a83a;
+    --colour-danger: #f08a80;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --colour-bg: #121212;
+  --colour-surface: #1a1a1a;
+  --colour-ink: #f2f2f2;
+  --colour-ink-muted: #9a9a9a;
+  --colour-hairline: rgba(242, 242, 242, 0.15);
+  --colour-hatch: rgba(242, 242, 242, 0.3);
+  --colour-scrim: rgba(0, 0, 0, 0.6);
+  --colour-accent: #3fb48f;
+  --colour-on-accent: #121212;
+  --colour-warning: #e0a83a;
+  --colour-warning-text: #e0a83a;
+  --colour-danger: #f08a80;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fill: 0ms;
+    --motion-progress: 0ms;
+    --motion-sheet: 0ms;
+    --motion-sweep: 0ms;
+    --motion-pulse-period: 0ms;
+  }
+}
