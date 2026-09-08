@@ -6,17 +6,17 @@
 
 export type Iso = string;
 
-export type Species = 'dog' | 'cat' | 'rabbit' | 'other';
-export const SPECIES: readonly Species[] = ['dog', 'cat', 'rabbit', 'other'];
+export const SPECIES = ['dog', 'cat', 'rabbit', 'other'] as const;
+export type Species = (typeof SPECIES)[number];
 
-export type Sex = 'M' | 'MN' | 'F' | 'FN' | 'unknown';
-export const SEXES: readonly Sex[] = ['M', 'MN', 'F', 'FN', 'unknown'];
+export const SEXES = ['M', 'MN', 'F', 'FN', 'unknown'] as const;
+export type Sex = (typeof SEXES)[number];
 
-export type Intake = '08:00' | '09:00' | '10:00' | 'none';
-export const INTAKES: readonly Intake[] = ['08:00', '09:00', '10:00', 'none'];
+export const INTAKES = ['08:00', '09:00', '10:00', 'none'] as const;
+export type Intake = (typeof INTAKES)[number];
 
-export type Phase = 'PRE_OP' | 'THEATRE' | 'RECOVERY' | 'DISCHARGE_PREP' | 'DONE';
-export const PHASES: readonly Phase[] = ['PRE_OP', 'THEATRE', 'RECOVERY', 'DISCHARGE_PREP', 'DONE'];
+export const PHASES = ['PRE_OP', 'THEATRE', 'RECOVERY', 'DISCHARGE_PREP', 'DONE'] as const;
+export type Phase = (typeof PHASES)[number];
 
 export type StepKey =
   | 'handover_admit'
