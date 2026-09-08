@@ -8,7 +8,7 @@ Mode: autonomous one-shot (see CLAUDE.md)
 | # | Stage | Status | Verifier | Merged |
 |---|-------|--------|----------|--------|
 | 0 | Scaffold | merged | orchestrator (stage 0 has no verifier per CLAUDE.md) | 2026-09-08 |
-| 1 | Domain core | in progress | - | - |
+| 1 | Domain core | merged | PASS 2026-09-08 (first round) | 2026-09-08 |
 | 2 | Store | in progress | - | - |
 | 3 | Scheduler | in progress | - | - |
 | 4 | Visual system and components | in progress | - | - |
@@ -38,6 +38,33 @@ DoD evidence (actual runs, 2026-09-08):
 Deviations: see Decisions (dependency versions and the extra dev packages).
 Open questions: none.
 
+### Stage 1: Domain core (implementing subagent, 2026-09-08, commit 930b150 on stage/1-domain)
+Built:
+All under /Users/misbahshah/code/wardbelt-wt/stage-1-domain (branch stage/1-domain), pure TypeScript, no I/O, no Date.now():
+- src/domain/time.ts: toMs / toIso / addMinutes, MINUTE_MS, DAY_MS; the only ISO-to-ms conversion point (UTC Z form).
+- src/domain/recovery.ts: scheduleChecks(tasks, returnedAt) sets dueAt on check_1..4 at exactly +15/30/45/60 min in ms via CHECK_OFFSETS_MIN; clearChecks removes them; other tasks keep object identity.
+- src/domain/patient.ts: createPatient, currentTask (min-order todo), isBeltComplete, completeTask/skipTask (todo only, any order, doneAt on both; in_theatre completion sets theatreReturnAt + schedules checks; discharge completion discharges), addCustomTask (insert after / at end, phase inherited or PRE_OP when first, O(n) renumber, duplicate id no-op), setNote (task note with delete-on-empty, or patient notes), dischargePatient, revertTask. Same reference on every no-op; property order kept stable for byte-for-byte undo.
+- src/domain/urgency.ts: DUE_SOON_MS, nextDue, overdueTasks, urgencyOf (ranks 0-3), urgencyKey + compareUrgency (strict total order: rank, dueAt, intake, createdAt, id), sortByUrgency (keys once per patient, one sort).
+- src/domain/stats.ts: shiftBounds (04:00 local to next 04:00 local via local Date constructors), shiftStats (ShiftStats per section 6; two linear passes over events, undone events excluded, UNDO never counted, 3-minute grace, streak across mixed events, median with even-count averaging, O(k log k) sort justified in a comment).
+- src/domain/reducer.ts: initialState, reduce (exhaustive switch with a never-typed runtime fallback), activePatients, dischargedPatients; every action per the stage brief; derived event ids `${eventId}:1`.
+- tests/unit/domain/{helpers,time.test,recovery.test,patient.test,urgency.test,stats.test,reducer.test,properties.test}.ts: xorshift32 PRNG, deepFreeze purity guard, unit tests for every branch, and the four property suites (a)-(d) with 33 seeded cases.
+
+DoD evidence (actual runs):
+Full gate `npm run lint && npm run typecheck && npm test && npm run build` exit 0 (log at scratchpad/gate.log):
+- lint: eslint 0 problems (--max-warnings 0); prettier "All matched files use Prettier code style!"
+- typecheck: tsconfig.json and tsconfig.sw.json both clean.
+- npm test (vitest run --coverage): 9 files, 125 tests passed, 2.1 s. Coverage summary: Statements 100% (548/548), Branches 100% (406/406), Functions 100% (108/108), Lines 100% (532/532). Per file (lines/branches): patient.ts 64/64, 55/55; recovery.ts 9/9, 6/6; reducer.ts 120/120, 98/98; stats.ts 56/56, 32/32; urgency.ts 38/38, 35/35; time.ts 5/5; template.ts, types.ts, validate.ts unchanged at 100%. Existing validate and scaffold tests still pass (24 of the 125).
+- Property suites all green: (a) 12 seeds x 150-300 random actions incl. invalid targets, deep-frozen states, invariants: exactly one current task or complete belt, orders 0..n-1, task ids unique, status/dischargedAt/discharge-task consistency, event ids unique; (b) 8 seeds x 3 snapshot states x every patient, N random complete/skip then N undos, JSON.stringify equality and event count; (c) 5 seeds x 40 random return times with odd milliseconds, both via completeTask(in_theatre) and SET_THEATRE_RETURN, delta exactly 15/30/45/60 x 60000 ms; (d) 8 seeds, two shuffles plus original sort identical, comparator antisymmetric, transitive, and never 0 for distinct keys.
+- Unit tests cover: 3-minute grace at exactly +3:00 (on time) and +3:00.001 (late); undone events excluded and UNDO itself never counted; streak across mixed and undone events; median odd (100), even (65), single, none; shift boundary 03:59:59 vs 04:00:00 local and year rollover; urgency ranks incl. exact due time and exact DUE_SOON_MS edges and every tiebreak level; every reducer branch incl. malformed timestamps and an unknown action type.
+- npm run build: dist/index.html 1.27 kB (0.57 kB gzip), dist/assets/index 10.92 kB (4.61 kB gzip), sw.mjs 17.07 kB (5.73 kB gzip), precache 10 entries. Domain code is not yet imported by main.tsx so the bundle is unchanged from stage 0.
+- e2e not run (stages 1-3 must not, per the common brief).
+
+Deviations: 1. revertTask clears theatreReturnAt and check dueAts only when the reverted in_theatre task was done, not when it was skipped (brief said "if key is in_theatre"): a skip never set them, so reverting a skip must not remove a separately recorded theatre return; this keeps undo byte-for-byte in that case. 2. UNDO of a discharge completion appends two UNDO events (`eventId` naming the TASK_COMPLETED and `${eventId}:1` naming the derived DISCHARGED), so stats' "excluding undone events" rule also nullifies the discharge count; the brief said "append UNDO { undoOf }" (singular). 3. Actions carrying an unparseable `at`, `returnedAt` or ADD_TASK `dueAt` return the same state instead of throwing (toISOString would throw on NaN); not in the brief, added for the malformed-input case. 4. UNDO still appends its UNDO event when the target's task is already unfinished (e.g. after an IMPORT replaced the record) so undo cannot get stuck on the same event; the brief's "invalid transition returns same state" was read as applying to complete/skip. Everything else follows PLAN.md and the stage brief exactly.
+
+Open questions: 1. Undo after a manual SET_THEATRE_RETURN: if the nurse records a theatre return manually while in_theatre is still unfinished, then completes in_theatre (which overwrites theatreReturnAt per the brief), an UNDO removes theatreReturnAt entirely rather than restoring the manual value; event history would be needed to restore it. Byte-for-byte undo therefore holds for every state except that one ordering; property (b) excludes SET_THEATRE_RETURN from snapshot generation for that reason. Stage 5 may want the UI to prefer COMPLETE_TASK(in_theatre) over SET_THEATRE_RETURN for the normal flow. 2. A DISCHARGE action (as opposed to completing the discharge cell) leaves no TASK_COMPLETED event, so a following UNDO reverts the previous completion rather than the discharge, exactly as PLAN.md section 6 defines undo ("last completion/skip"); stage 5 should decide whether the discharge button offers undo. 3. shiftBounds is tested with local Date constructors on the build machine's zone; a DST-transition day cannot be forced in-test without changing process TZ, which the tests deliberately avoid.
+
+Verifier (independent, 2026-09-08): PASS on first round. Gate re-run green; 66 probe tests across 7 time zones (UTC, New York, Auckland, Kolkata, Chatham, London, Santiago) all pass; probes covered identity on 25 no-op and malformed reducer cases, byte-for-byte revert for every template task, DST and leap-day check scheduling, 200 custom tasks, unicode notes, urgency total order. Notes for later stages: UNDO of a completed discharge appends two UNDO events (eventId and eventId:1) so the derived DISCHARGED event is nullified too; the DISCHARGE action emits only DISCHARGED and cannot be undone by UNDO, so the stage 5 UI should route the discharge button through COMPLETE_TASK on the discharge task; reduce() is only defined for well-typed Action objects.
+
 ## Decisions
 Running log. One line each: date, decision, reason, PLAN.md deviation? y/n.
 - 2026-09-08, TypeScript 5.9.3 rather than 7.x, typescript-eslint 8.70 peer range is <6.1 and TS 6 changed tsconfig defaults, n.
@@ -54,6 +81,21 @@ Running log. One line each: date, decision, reason, PLAN.md deviation? y/n.
 - 2026-09-08, pages.yml deploys on `workflow_run` success of CI on main (plus manual dispatch) so a red e2e never deploys, n.
 - 2026-09-08, in-app routes use the URL hash (`#/dev`, `#/summary`, `#/settings`) so the SW navigation fallback and the Pages sub-path need no special handling, n.
 - 2026-09-08, Stage 0 owns src/domain/types.ts and template.ts as the cross-stage contract; stage 1 may add to them but may not change exported shapes without reporting, n.
+- 2026-09-08, stage reports are returned by each subagent as structured output and written into STATE.md by the orchestrator verbatim, so four parallel branches never conflict on this file, n.
+- 2026-09-08, stage 1: Tiebreaks in compareUrgency compare the stored ISO strings lexicographically (normalised UTC so chronological) rather than parsed ms, so the order is total even for unparseable dates; PLAN.md silent, n.
+- 2026-09-08, stage 1: medianAdmitToDischargeMin is returned unrounded (fractional minutes); the summary screen formats it; PLAN.md silent, n.
+- 2026-09-08, stage 1: Rank 1 (due soon) boundary is inclusive: dueAt - now <= DUE_SOON_MS; rank 0 is dueAt <= now; PLAN.md silent, n.
+- 2026-09-08, stage 1: PATIENT_DELETED event type stays unused: DELETE_PATIENT removes the patient and its events and appends nothing (per brief), n.
+- 2026-09-08, stage 1: Completing or skipping tasks on a discharged patient is allowed (only SET_THEATRE_RETURN is refused for discharged patients, per brief); PLAN.md silent, n.
+- 2026-09-08, stage 1: currentTask picks the minimum-order unfinished task by scanning, not the first array element, so imported records with unsorted tasks still behave; PLAN.md silent, n.
+- 2026-09-08, stage 1: Exhaustive reducer switch keeps a default that routes a never-typed action to ignoreUnknown returning the same state, so an unknown persisted action type is ignored at run time and the coverage gate needs no exclusion comment; n.
+- 2026-09-08, stage 1: Custom task inserted into an empty task list gets phase PRE_OP; otherwise inherits the phase of the task it follows (per brief), n.
+- 2026-09-08, stage 1: Stats collects undoOf ids from every UNDO event regardless of the shift window, so an undo performed after 04:00 still nullifies the shift's event; PLAN.md silent, n.
+- 2026-09-08, stage 1: revertTask on in_theatre only clears theatre return when the task was done, not skipped; deviation from brief wording, y.
+- 2026-09-08, stage 1: UNDO of a discharge completion emits a second UNDO event for the derived DISCHARGED event; deviation from brief wording, y.
+- 2026-09-08, stage 1: Reducer ignores actions with unparseable timestamps instead of throwing; addition, y.
+- 2026-09-08, stage 1: Property test (a) uses a violations() string list with one assertion per step instead of hundreds of expects, bringing the suite from 11 s to 0.3 s; n.
+- 2026-09-08, stage 1: Test-only xorshift32 PRNG and deepFreeze live in tests/unit/domain/helpers.ts (not a test file, outside coverage include); n.
 
 ## Open questions
 Anything blocking or deferred, with the stage it affects.
