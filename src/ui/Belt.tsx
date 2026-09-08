@@ -20,6 +20,8 @@ export interface BeltProps {
   now: number;
   onTapCurrent?: (() => void) | undefined;
   compact?: boolean;
+  /** Read-only tab: the current cell stays a button for layout but cannot be tapped. */
+  disabled?: boolean | undefined;
 }
 
 interface Cell {
@@ -55,7 +57,14 @@ function beltLabel(tasks: readonly Task[], currentTaskId: string | undefined): s
   return `${done} of ${total} done, ${tail}`;
 }
 
-export function Belt({ tasks, currentTaskId, now, onTapCurrent, compact = false }: BeltProps) {
+export function Belt({
+  tasks,
+  currentTaskId,
+  now,
+  onTapCurrent,
+  compact = false,
+  disabled = false,
+}: BeltProps) {
   const groups = groupByPhase(tasks, currentTaskId, now);
   const hasCurrent = tasks.some((t) => t.id === currentTaskId);
   return (
@@ -74,6 +83,7 @@ export function Belt({ tasks, currentTaskId, now, onTapCurrent, compact = false 
                 class="belt__hit"
                 key={task.id}
                 aria-label={`Complete ${task.label}${overdue ? ' (overdue)' : ''}`}
+                disabled={disabled}
                 onClick={onTapCurrent}
               >
                 <span class={cellClass(state, overdue)} aria-hidden="true">
