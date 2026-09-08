@@ -133,6 +133,17 @@ describe('tokens.css palette', () => {
     expect(contrast('#ffffff', get(darkForced, 'colour-accent'))).toBeLessThan(4.5);
   });
 
+  it('two stacked chips and their gap fit inside the 48 px row header', () => {
+    const root = block(css, ':root {');
+    const px = (name: string): number => {
+      const m = new RegExp(`--${name}:\\s*(\\d+)px`).exec(root);
+      expect(m, name).not.toBeNull();
+      return Number(m?.[1]);
+    };
+    expect(px('chip-height') * 2 + px('space-1')).toBeLessThanOrEqual(px('target'));
+    expect(px('row-height')).toBe(px('space-2') * 2 + px('target') + px('cell'));
+  });
+
   it('every motion token is 400 ms or under and zeroed under reduced motion', () => {
     const root = block(css, ':root {');
     const durations = [...root.matchAll(/--motion-[a-z-]+:\s*(\d+)ms/g)].map((m) => Number(m[1]));

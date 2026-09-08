@@ -52,6 +52,7 @@
   --cell: 24px;
   --cell-gap: 4px;
   --phase-gap: 8px;
+  --chip-height: 20px;
   --progress-height: 2px;
 
   --motion-fill: 120ms;

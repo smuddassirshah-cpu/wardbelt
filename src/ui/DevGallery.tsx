@@ -2,8 +2,11 @@
 // component renders in every state from the synthetic fixtures at a fixed clock so overdue
 // and due-soon states are stable. Sheets render inline so the page scrolls and axe sees all
 // of it at once. Current task ids are fixture facts written down here, not computed, because
-// the UI never derives the current task. The theme switch writes data-theme on <html>; a
-// theme query parameter (search string or after the hash) preselects it.
+// the UI never derives the current task. The patient sheet renders four times: the recovery
+// patient with and without undo, the custom-task patient (task note) given a synthetic owner
+// phone (tel: link), and the discharged patient (Discharge disabled with its time). The theme
+// switch writes data-theme on <html>; a theme query parameter (search string or after the
+// hash) preselects it.
 import { validatePatientForm } from '@domain/validate';
 import { templateTaskId, type Patient, type Theme } from '@domain/types';
 import {
@@ -33,6 +36,7 @@ import { applyTheme, readThemeParam } from './theme';
 
 const THEMES: readonly Theme[] = ['system', 'light', 'dark'];
 const noop = () => undefined;
+const SYNTHETIC_PHONE = '+44 0000 000000';
 
 interface Variant {
   title: string;
@@ -137,6 +141,21 @@ export function DevGallery() {
 
   const items = variants();
   const recovery = items[3];
+  const custom = items[4];
+  const discharged = items[5];
+  const sheetHandlers = {
+    now: FIXED_NOW_MS,
+    onComplete: noop,
+    onSkip: noop,
+    onUndo: noop,
+    onAddTask: noop,
+    onSetNote: noop,
+    onSetTheatreReturn: noop,
+    onDischarge: noop,
+    onDelete: noop,
+    onClose: noop,
+    inline: true,
+  };
   const stats = {
     tasksCompleted: 41,
     tasksSkipped: 3,
@@ -216,44 +235,48 @@ export function DevGallery() {
       </Section>
 
       <Section id="sheet" title="Patient sheet">
-        {recovery !== undefined && (
-          <div class="gallery__stack">
-            <h3 class="gallery__label">Undo available</h3>
-            <PatientSheet
-              patient={recovery.patient}
-              now={FIXED_NOW_MS}
-              currentTaskId={recovery.currentTaskId}
-              canUndo
-              onComplete={noop}
-              onSkip={noop}
-              onUndo={noop}
-              onAddTask={noop}
-              onSetNote={noop}
-              onSetTheatreReturn={noop}
-              onDischarge={noop}
-              onDelete={noop}
-              onClose={noop}
-              inline
-            />
-            <h3 class="gallery__label">Nothing to undo</h3>
-            <PatientSheet
-              patient={recovery.patient}
-              now={FIXED_NOW_MS}
-              currentTaskId={recovery.currentTaskId}
-              canUndo={false}
-              onComplete={noop}
-              onSkip={noop}
-              onUndo={noop}
-              onAddTask={noop}
-              onSetNote={noop}
-              onSetTheatreReturn={noop}
-              onDischarge={noop}
-              onDelete={noop}
-              onClose={noop}
-              inline
-            />
-          </div>
-        )}
+        <div class="gallery__stack">
+          {recovery !== undefined && (
+            <>
+              <h3 class="gallery__label">Undo available</h3>
+              <PatientSheet
+                {...sheetHandlers}
+                patient={recovery.patient}
+                currentTaskId={recovery.currentTaskId}
+                canUndo
+              />
+              <h3 class="gallery__label">Nothing to undo</h3>
+              <PatientSheet
+                {...sheetHandlers}
+                patient={recovery.patient}
+                currentTaskId={recovery.currentTaskId}
+                canUndo={false}
+              />
+            </>
+          )}
+          {custom !== undefined && (
+            <>
+              <h3 class="gallery__label">Custom task with a note, owner phone shown</h3>
+              <PatientSheet
+                {...sheetHandlers}
+                patient={{ ...custom.patient, ownerPhone: SYNTHETIC_PHONE }}
+                currentTaskId={custom.currentTaskId}
+                canUndo
+              />
+            </>
+          )}
+          {discharged !== undefined && (
+            <>
+              <h3 class="gallery__label">Discharged</h3>
+              <PatientSheet
+                {...sheetHandlers}
+                patient={discharged.patient}
+                currentTaskId={discharged.currentTaskId}
+                canUndo={false}
+              />
+            </>
+          )}
+        </div>
       </Section>
 
       <Section id="admit" title="Add patient">

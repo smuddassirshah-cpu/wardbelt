@@ -115,6 +115,69 @@ test('patient rows are 88 px collapsed', async ({ page }) => {
   }
 });
 
+test('timer chips keep the space between code and countdown', async ({ page }) => {
+  await openGallery(page);
+  await expect(page.locator('#rows .chip--danger').first()).toHaveText(/C1 overdue 05:00/);
+  await expect(page.locator('#rows .chip--warning').first()).toHaveText(/BA in 25:00/);
+  const rendered = await page.evaluate(() =>
+    Array.from(
+      document.querySelectorAll<HTMLElement>('#rows .chip--danger, #rows .chip--warning'),
+    ).map((el) => el.innerText),
+  );
+  expect(rendered).toHaveLength(2);
+  expect(rendered[0]).toContain('C1 overdue 05:00');
+  expect(rendered[1]).toContain('BA in 25:00');
+});
+
+test('header chips stay inside the 48 px header and clear of the belt', async ({ page }) => {
+  await openGallery(page);
+  const rows = page.locator('#rows .row');
+  await expect(rows).toHaveCount(6);
+  const geometry = await rows.evaluateAll((els) =>
+    els.map((row) => {
+      const header = row.querySelector('.row__header')?.getBoundingClientRect();
+      const belt = row.querySelector('.row__belt')?.getBoundingClientRect();
+      const square = row.querySelector('.belt__square')?.getBoundingClientRect();
+      const chips = Array.from(row.querySelectorAll('.row__side .chip')).map((c) =>
+        c.getBoundingClientRect(),
+      );
+      return {
+        chips: chips.length,
+        headerHeight: header?.height,
+        chipsInside:
+          header !== undefined &&
+          chips.every((c) => c.top >= header.top && c.bottom <= header.bottom),
+        beltBelowHeader:
+          header !== undefined &&
+          belt !== undefined &&
+          square !== undefined &&
+          belt.top >= header.bottom &&
+          square.top >= header.bottom,
+      };
+    }),
+  );
+  expect(geometry.filter((g) => g.chips === 2)).not.toHaveLength(0);
+  for (const g of geometry) {
+    expect(g.headerHeight).toBe(48);
+    expect(g.chipsInside).toBe(true);
+    expect(g.beltBelowHeader).toBe(true);
+  }
+});
+
+test('patient sheet shows owner phone, task note and discharged states', async ({ page }) => {
+  await openGallery(page);
+  const tel = page.locator('#sheet a[href^="tel:"]');
+  await expect(tel).toHaveCount(1);
+  await expect(tel).toHaveAttribute('href', 'tel:+440000000000');
+  const box = await tel.boundingBox();
+  expect(box?.width).toBeGreaterThanOrEqual(48);
+  expect(box?.height).toBeGreaterThanOrEqual(48);
+  await expect(page.locator('#sheet .task__note')).toHaveText('Left fore, check for slippage');
+  const discharged = page.locator('#sheet button', { hasText: /^Discharged \d\d:\d\d$/ });
+  await expect(discharged).toHaveCount(1);
+  await expect(discharged).toBeDisabled();
+});
+
 test('reduced motion zeroes animation and transition durations', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await openGallery(page);

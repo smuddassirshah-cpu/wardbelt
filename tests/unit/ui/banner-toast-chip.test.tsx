@@ -79,6 +79,40 @@ describe('Toast', () => {
     expect(onExpire).toHaveBeenCalledTimes(1);
   });
 
+  it('holds its deadline when a ticking parent re-renders with a new onExpire', () => {
+    const first = vi.fn();
+    const latest = vi.fn();
+    const { rerender } = render(
+      <Toast
+        message="Tick"
+        durationMs={4000}
+        onExpire={() => {
+          first();
+        }}
+        inline
+      />,
+    );
+    for (let i = 0; i < 3; i += 1) {
+      vi.advanceTimersByTime(1000);
+      rerender(
+        <Toast
+          message="Tick"
+          durationMs={4000}
+          onExpire={() => {
+            latest();
+          }}
+          inline
+        />,
+      );
+    }
+    expect(latest).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+    expect(latest).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(10_000);
+    expect(latest).toHaveBeenCalledTimes(1);
+  });
+
   it('never lives longer than 4 s and clears its timer on unmount', () => {
     const onExpire = vi.fn();
     const { unmount } = render(<Toast message="Long" durationMs={60_000} onExpire={onExpire} />);

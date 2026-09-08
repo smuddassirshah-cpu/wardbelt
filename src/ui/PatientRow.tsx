@@ -1,6 +1,9 @@
 // Decision notes: the row is 88 px collapsed: 8 px padding, a 48 px header button, a 24 px
-// belt, 8 px padding, with the 2 px progress bar on the bottom edge. Urgency and the next due
-// task are props; the row only formats them. The timer chip reads from nextDue and now.
+// belt, 7 px padding and the 1 px hairline, with the 2 px progress bar on the bottom edge.
+// Urgency and the next due task are props; the row only formats them. The timer chip reads
+// from nextDue and now; its
+// code and countdown share one inline span because the chip is a flex container and a bare
+// text node beside the code span would lose its leading space as a separate flex item.
 import { type Iso, type Patient } from '@domain/types';
 import { Belt } from './Belt';
 import { Chip } from './Chip';
@@ -41,8 +44,10 @@ function TimerChip({
   return (
     <Chip tone={overdue ? 'danger' : 'warning'} mono>
       <span class="visually-hidden">{`${task.label} `}</span>
-      <span aria-hidden="true">{code}</span>
-      {overdue ? ` overdue ${formatCountdown(remaining)}` : ` in ${formatCountdown(remaining)}`}
+      <span>
+        <span aria-hidden="true">{code}</span>
+        {overdue ? ` overdue ${formatCountdown(remaining)}` : ` in ${formatCountdown(remaining)}`}
+      </span>
     </Chip>
   );
 }

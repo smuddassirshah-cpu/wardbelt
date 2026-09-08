@@ -14,6 +14,18 @@ import {
 
 afterEach(cleanup);
 
+/**
+ * The chip is a flex container, so the code and the countdown must live in one inline element:
+ * as separate flex items the countdown's leading space would collapse ("C1overdue 05:00").
+ */
+function visibleText(chip: Element | null): string | undefined {
+  const inFlow = Array.from(chip?.children ?? []).filter(
+    (el) => !el.classList.contains('visually-hidden'),
+  );
+  expect(inFlow).toHaveLength(1);
+  return inFlow[0]?.textContent ?? undefined;
+}
+
 describe('PatientRow', () => {
   it('shows the header, opens on tap and completes from the current cell', () => {
     const onOpen = vi.fn();
@@ -61,6 +73,7 @@ describe('PatientRow', () => {
     const chip = container.querySelector('.chip--danger');
     expect(chip?.textContent).toBe('Post-op check 1 C1 overdue 05:00');
     expect(chip?.classList.contains('mono')).toBe(true);
+    expect(visibleText(chip)).toBe('C1 overdue 05:00');
     expect(container.querySelector('.row')?.getAttribute('data-urgency')).toBe('overdue');
     expect(container.querySelector('.chip--accent')).toBeNull();
   });
@@ -78,9 +91,9 @@ describe('PatientRow', () => {
         onOpen={vi.fn()}
       />,
     );
-    expect(container.querySelector('.chip--warning')?.textContent).toBe(
-      'Bandage check BA in 25:00',
-    );
+    const chip = container.querySelector('.chip--warning');
+    expect(chip?.textContent).toBe('Bandage check BA in 25:00');
+    expect(visibleText(chip)).toBe('BA in 25:00');
   });
 
   it('shows no timer chip without nextDue or when the task is unknown', () => {
