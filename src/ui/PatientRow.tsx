@@ -24,6 +24,8 @@ export interface PatientRowProps {
   nextDue?: NextDue | undefined;
   onCompleteCurrent: () => void;
   onOpen: () => void;
+  /** Read-only tab: header and current cell render but are disabled. */
+  readOnly?: boolean | undefined;
 }
 
 function TimerChip({
@@ -60,12 +62,13 @@ export function PatientRow({
   nextDue,
   onCompleteCurrent,
   onOpen,
+  readOnly = false,
 }: PatientRowProps) {
   const progress = progressOf(patient.tasks);
   const pct = progress.total === 0 ? 0 : (progress.done / progress.total) * 100;
   return (
     <article class="row" data-urgency={urgency}>
-      <button type="button" class="row__header" onClick={onOpen}>
+      <button type="button" class="row__header" disabled={readOnly} onClick={onOpen}>
         <span class="row__main">
           <span class="row__title">
             <span class="row__name">{patient.name}</span>
@@ -90,6 +93,7 @@ export function PatientRow({
           currentTaskId={currentTaskId}
           now={now}
           onTapCurrent={onCompleteCurrent}
+          disabled={readOnly}
         />
       </div>
       <div class="row__progress" aria-hidden="true">

@@ -1,0 +1,80 @@
+/*
+ * Decision notes: layout for the app shell around the stage 4 components, from tokens only
+ * (tests/unit/ui/no-literal-colours.test.ts scans this file). The header is sticky, the bottom
+ * bar is fixed at 48 px plus padding, and the main column leaves room for it plus the toast,
+ * which sits above the bar instead of on it. Nothing here restyles a component.
+ */
+.app {
+  min-height: 100vh;
+  padding-bottom: calc(var(--target) + var(--space-4) * 2);
+}
+
+.app__header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-4);
+  background: var(--colour-bg);
+  border-bottom: var(--hairline) solid var(--colour-hairline);
+}
+
+.app__clock {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.app__main {
+  display: block;
+}
+
+.board__rows {
+  background: var(--colour-surface);
+}
+
+.board__status {
+  padding: var(--space-6) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.board__empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-8) var(--space-4);
+  color: var(--colour-ink-muted);
+}
+
+.board__discharged {
+  padding: var(--space-4) 0;
+}
+
+.board__discharged > .btn {
+  margin: 0 var(--space-4) var(--space-2);
+}
+
+.app__bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--colour-bg);
+  border-top: var(--hairline) solid var(--colour-hairline);
+}
+
+.app__bar > .btn {
+  flex: 1 1 0;
+  padding: 0 var(--space-2);
+}
+
+.app__toast .toast {
+  bottom: calc(var(--target) + var(--space-4) * 2);
+}
