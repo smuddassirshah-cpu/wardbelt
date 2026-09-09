@@ -1,7 +1,8 @@
 // Decision notes: the stage 4 DoD on the production build (PLAN.md section 11): axe clean in
 // both themes, every visible target at least 48 px, reduced motion honoured, no horizontal
 // page scroll. Radio and checkbox inputs are measured through their wrapping label, and the
-// hidden file input is excluded because its 48 px Import button is the target.
+// hidden file input is excluded because its 48 px Import button is the target. Body background
+// is polled because the gallery applies data-theme in an effect that Preact flushes after paint.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -66,13 +67,13 @@ async function smallTargets(page: Page): Promise<{ measured: number; failures: T
 
 test('light theme: axe clean, light background', async ({ page }) => {
   await openGallery(page);
-  expect(await bodyBackground(page)).toBe(LIGHT_BG);
+  await expect.poll(() => bodyBackground(page)).toBe(LIGHT_BG);
   expect(await axeViolations(page)).toEqual([]);
 });
 
 test('dark theme via ?theme=dark: axe clean, dark background', async ({ page }) => {
   await openGallery(page, '/?theme=dark#/dev');
-  expect(await bodyBackground(page)).toBe(DARK_BG);
+  await expect.poll(() => bodyBackground(page)).toBe(DARK_BG);
   await expect(page.getByRole('button', { name: 'Dark', pressed: true })).toBeVisible();
   expect(await axeViolations(page)).toEqual([]);
 });
@@ -80,10 +81,10 @@ test('dark theme via ?theme=dark: axe clean, dark background', async ({ page }) 
 test('dark theme via prefers-color-scheme: axe clean, dark background', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await openGallery(page);
-  expect(await bodyBackground(page)).toBe(DARK_BG);
+  await expect.poll(() => bodyBackground(page)).toBe(DARK_BG);
   expect(await axeViolations(page)).toEqual([]);
   await page.getByRole('button', { name: 'Light' }).click();
-  expect(await bodyBackground(page)).toBe(LIGHT_BG);
+  await expect.poll(() => bodyBackground(page)).toBe(LIGHT_BG);
 });
 
 test('every visible interactive element is at least 48 by 48', async ({ page }) => {

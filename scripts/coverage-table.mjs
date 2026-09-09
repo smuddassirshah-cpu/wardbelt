@@ -2,6 +2,8 @@
 // docs/TESTING.md quotes: every src/domain file (the 100% gate) plus per-directory totals for
 // store, scheduler, ui and ui/app. Vitest's text reporter omits fully covered files, so the
 // per-file domain rows are only visible this way. Reads the last run; never runs the tests.
+// Percentages are floored to two decimals, istanbul's own convention, so every cell equals what
+// `npm test` prints for the same counts (rounding gave 99.19 where vitest reports 99.18).
 // Usage: node scripts/coverage-table.mjs [--write]
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
@@ -41,7 +43,8 @@ for (const [file, cov] of Object.entries(summary)) {
   }
 }
 
-const pct = (c) => (c.total === 0 ? '100' : ((100 * c.covered) / c.total).toFixed(2));
+const pct = (c) =>
+  c.total === 0 ? '100' : (Math.floor((10_000 * c.covered) / c.total) / 100).toFixed(2);
 const cell = (c) => `${pct(c)}% (${String(c.covered)}/${String(c.total)})`;
 const header = ['scope', 'statements', 'branches', 'functions', 'lines'];
 const rows = [
@@ -61,5 +64,5 @@ await writeEvidence('coverage.json', {
   totals: Object.fromEntries(
     DIRS.map((d) => [d, Object.fromEntries(METRICS.map((m) => [m, Number(pct(totals[d][m]))]))]),
   ),
-  allFiles: Object.fromEntries(METRICS.map((m) => [m, summary.total[m].pct])),
+  allFiles: Object.fromEntries(METRICS.map((m) => [m, Number(pct(summary.total[m]))])),
 });

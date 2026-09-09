@@ -4,12 +4,16 @@ Stage 7 of the build (PLAN.md section 11). Every number below was produced by a 
 repository on the date stated; nothing is typed in from memory. The trimmed machine-readable
 summaries live in `docs/evidence/` and each carries its own timestamp and commit.
 
-- Date of the runs: 2026-09-09 (UTC 01:43 to 01:58).
-- Sources measured: commit `dd6b370` (main after the stage 6 merge). Stage 7 adds only scripts,
-  tests, CI steps and these documents, so `npm run build` at the stage 7 commit produces the
-  same artefacts: `assets/index-ClAHynj2.js`, `assets/index-BgkVBKBj.css`,
-  `assets/DevGallery-CT-gv7vt.js`, `assets/workbox-window.prod.es5-BBnX5xw4.js`, `sw.js`
-  with 13 precache entries.
+- Date of the runs: 2026-09-09. The stage 7 runs (UTC 01:43 to 01:58) were made at commit
+  `dd6b370`; stage 8 re-ran every evidence script (UTC 02:20 to 02:21) at commit `3aa07b1`
+  (main after the stage 7 merge, which holds every measured source and test), so each file in
+  `docs/evidence/` now names that commit, except `coverage.json`, regenerated at `3c81d9a`
+  (see Coverage). Every count below was identical on the re-run except the Lighthouse
+  performance metrics noted in that section, which are quoted from the re-run.
+- Sources measured: commit `3aa07b1`. Nothing under `src/` changed between `dd6b370` and this
+  commit, so `npm run build` produces the same artefacts: `assets/index-ClAHynj2.js`,
+  `assets/index-BgkVBKBj.css`, `assets/DevGallery-CT-gv7vt.js`,
+  `assets/workbox-window.prod.es5-BBnX5xw4.js`, `sw.js` with 13 precache entries.
 - Machine: macOS (Darwin 25.6.0, arm64), Node v22.16.0, npm 10.9.2, Google Chrome 152
   (HeadlessChrome/152.0.0.0), Playwright 1.63.0 with the Pixel 5 profile, Vitest 4.1.11,
   axe-core 4.13.0 via @axe-core/playwright 4.13.0.
@@ -35,7 +39,11 @@ summaries live in `docs/evidence/` and each carries its own timestamp and commit
 From `npm test` (`vitest run --coverage`, v8 provider). The enforced gate is 100% on every
 metric for `src/domain/**` (vitest.config.ts); the other directories have no threshold. Table
 produced by `node scripts/coverage-table.mjs` from `coverage/coverage-summary.json` of that run
-(`docs/evidence/coverage.json`).
+(`docs/evidence/coverage.json`). Percentages are floored to two decimals, istanbul's own
+convention, so each cell is the figure `npm test` prints for the same counts; the script
+rounded before the stage 8 fix round (99.19% where vitest printed 99.18%), so the table and
+`coverage.json` were regenerated from a fresh `npm test` at commit `3c81d9a` (UTC 05:41, same
+counts as the `3aa07b1` run, `src/` unchanged).
 
 | scope                  | statements         | branches           | functions         | lines              |
 | ---------------------- | ------------------ | ------------------ | ----------------- | ------------------ |
@@ -49,11 +57,11 @@ produced by `node scripts/coverage-table.mjs` from `coverage/coverage-summary.js
 | src/domain/urgency.ts  | 100.00% (41/41)    | 100.00% (35/35)    | 100.00% (11/11)   | 100.00% (38/38)    |
 | src/domain/validate.ts | 100.00% (224/224)  | 100.00% (180/180)  | 100.00% (32/32)   | 100.00% (224/224)  |
 | src/domain (total)     | 100.00% (548/548)  | 100.00% (406/406)  | 100.00% (108/108) | 100.00% (532/532)  |
-| src/store (total)      | 100.00% (213/213)  | 96.30% (78/81)     | 100.00% (66/66)   | 100.00% (202/202)  |
+| src/store (total)      | 100.00% (213/213)  | 96.29% (78/81)     | 100.00% (66/66)   | 100.00% (202/202)  |
 | src/scheduler (total)  | 100.00% (164/164)  | 100.00% (89/89)    | 100.00% (45/45)   | 100.00% (155/155)  |
-| src/ui/app (total)     | 98.38% (486/494)   | 94.81% (292/308)   | 97.04% (131/135)  | 98.76% (479/485)   |
-| src/ui (total)         | 98.35% (416/423)   | 95.25% (341/358)   | 97.35% (147/151)  | 98.56% (410/416)   |
-| all files              | 99.19% (1827/1842) | 97.10% (1206/1242) | 98.42% (497/505)  | 99.33% (1778/1790) |
+| src/ui/app (total)     | 98.38% (486/494)   | 94.80% (292/308)   | 97.03% (131/135)  | 98.76% (479/485)   |
+| src/ui (total)         | 98.34% (416/423)   | 95.25% (341/358)   | 97.35% (147/151)  | 98.55% (410/416)   |
+| all files              | 99.18% (1827/1842) | 97.10% (1206/1242) | 98.41% (497/505)  | 99.32% (1778/1790) |
 
 The three uncovered store branches are the ones the stage 2 verifier noted (`db.ts:70`
 `newVersion ?? version`, `repo.ts:259` equal-id sort tie); the uncovered ui lines are
@@ -77,15 +85,17 @@ npx --yes lighthouse@11.7.1 http://localhost:4173/ --only-categories=pwa --chrom
 | Category       | Score | Target | Lighthouse | Audits                                                   |
 | -------------- | ----- | ------ | ---------- | -------------------------------------------------------- |
 | PWA            | 100   | >= 95  | 11.7.1     | 9: 6 passed (installable-manifest, splash-screen, themed-omnibox, content-width, viewport, maskable-icon), 3 manual |
-| Performance    | 100   | >= 95  | 13.4.1     | 49: 29 passed, 5 not applicable, 12 informative, 3 below 1 (see note) |
+| Performance    | 100   | >= 95  | 13.4.1     | 49: 28 passed, 5 not applicable, 12 informative, 4 below 1 (see note) |
 | Accessibility  | 100   | >= 95  | 13.4.1     | 76: 15 passed, 51 not applicable, 10 manual, 0 failed    |
 | Best practices | 100   | none   | 13.4.1     | 21: 13 passed, 1 not applicable, 7 informative, 0 failed |
 
-Metrics (13.4.1, simulated mobile): first contentful paint 1.2 s, largest contentful paint
-1.4 s, total blocking time 0 to 10 ms across runs, cumulative layout shift 0, speed index 1.2 s.
+Metrics (13.4.1, simulated mobile, stage 8 re-run at `3aa07b1`): first contentful paint 1.2 s,
+largest contentful paint 1.5 s (1.4 s on the stage 7 runs), total blocking time 10 ms (0 to
+10 ms across runs), cumulative layout shift 0, speed index 1.2 s.
 
 Audits scored below 1 on the performance category, none of which lowers the score:
 `first-contentful-paint` 0.99 (1.2 s, weight 10, within the "good" band);
+`max-potential-fid` 0.99 (80 ms, weight 0, scored 1 on the stage 7 runs);
 `network-dependency-tree-insight` and `render-blocking-insight` score 0 but carry weight 0 (the
 "insights" group). The render-blocking item is the 3.1 kB stylesheet
 (`assets/index-BgkVBKBj.css`, estimated 150 ms). Removing it would mean inlining the CSS, which
@@ -94,8 +104,8 @@ score is already 100, so it is recorded rather than changed. Cache headers canno
 controlled on `vite preview` or GitHub Pages and no audit penalised them.
 
 Lighthouse 13.4.1 declares `node >= 22.19` and printed an `EBADENGINE` warning on Node 22.16.0;
-it ran to completion and produced a complete report. Three runs (two through the script, one by
-hand) gave the same four scores.
+it ran to completion and produced a complete report. Four runs (three in stage 7, one in stage
+8) gave the same four scores.
 
 ## axe
 
@@ -179,7 +189,61 @@ Each line says how it was verified. Static checks over `dist/` are `node scripts
 | Clock backwards jump | `tests/unit/hardening/clock-jump.test.tsx`: session on the fake clock with an overdue check; clock set 60 min back then swept: no throw, `state.now` follows, chip reads `C1 in 55:00`, stored `dueAt` unchanged, one timer armed, urgency returns to due-soon then overdue as time advances; forward jump of 60 min: `C1 overdue 65:00`, row first; shift window and stats coherent either side. Also `tests/unit/scheduler/timers.test.ts` "neither throws nor notifies on a backwards clock jump" | 3 passed |
 | Reduced motion | `tests/e2e/dev-gallery.spec.ts` "reduced motion zeroes animation and transition durations" (`emulateMedia reducedMotion`, done cell, overdue cell and progress fill all `0s`) | passed |
 | Touch targets 48 px | `tests/e2e/dev-gallery.spec.ts` "every visible interactive element is at least 48 by 48" (more than 200 measured), `tests/e2e/flows.spec.ts` "board and add sheet are axe clean with 48 px targets", `tests/e2e/a11y.spec.ts` (board with data and open sheet, both themes) | passed |
-| No secret in the tree | `.gitignore` covers `.env*`; the stage 0 `gitleaks detect` run was clean and stage 8 repeats it over the full history | see stage 8 |
+| No secret in the tree | `.gitignore` covers `.env*`; `gitleaks detect --source . --no-banner` over the full history is a step of `scripts/pre-push.sh` | PASS: 21 commits scanned, no leaks found (stage 8 gate below) |
+
+## Stage 8 gate
+
+`scripts/pre-push.sh` run on 2026-09-09 at commit `5ca912e` (the stage 8 implementation
+commit; this section was added in the commit that follows it, and the gate was re-run there
+with the same result, recorded in the stage 8 report in STATE.md), exit 0. Every step calls
+the commands above; the summary the script printed:
+
+```
+==== pre-push summary (stage-8-release, HEAD 5ca912e) ====
+PASS  preview port 4173 is free (0 s)
+PASS  npm run lint (8 s)
+PASS  npm run typecheck (3 s)
+PASS  npm test (11 s)
+PASS  npm run build (2 s)
+PASS  bundle size (scripts/bundle-size.mjs) (0 s)
+PASS  hardening checks (scripts/hardening.mjs) (0 s)
+PASS  Pages base path (scripts/check-base-path.mjs) (1 s)
+PASS  npm run test:e2e (57 s)
+PASS  gitleaks detect (full history) (1 s)
+PASS  clean clone: npm ci, build, test (18 s)
+total 101 s
+
+pre-push gate GREEN
+```
+
+What the stage 8 steps add to the stage 7 gate:
+
+| Step | Result |
+| ---- | ------ |
+| `npm run test:e2e` | 37 passed (57.0 s): the 33 stage 7 tests plus `tests/e2e/install.spec.ts` (3: manifest installable with name, short_name, standalone, start_url and scope equal to the app base, theme_color, 192/512/maskable-512 icons fetched as PNGs; manifest link and apple-touch-icon present and fetched; `navigator.serviceWorker.ready` resolves with the app scope and the controller is `sw.js` after a reload) and `tests/e2e/screenshots.spec.ts` (1: the README scene on Pixel 5 under the Playwright clock, six PNGs each asserted under 300 kB) |
+| `node scripts/check-base-path.mjs` | `VITE_BASE_PATH=/wardbelt/ vite build` into a temporary directory: start_url `/wardbelt/`, scope `/wardbelt/`, 2 of 2 asset references start with `/wardbelt/assets/`, manifest linked at `/wardbelt/manifest.webmanifest`, no absolute reference outside the base, `/wardbelt/sw.js` referenced by the bundle, sw.js emitted; 7 of 7 checks passed, `dist/` untouched |
+| `gitleaks detect --source . --no-banner` | 21 commits scanned, about 1.34 MB in 263 ms, no leaks found |
+| clean clone | `git clone` of HEAD `5ca912e` into a temporary directory, `npm ci` (518 packages), `npm run build`, `npm test`: 42 files, 483 tests passed, coverage 99.18% statements, 97.1% branches, 98.41% functions, 99.32% lines, domain thresholds met |
+| `actionlint` | no findings on `ci.yml` and `pages.yml` (neither changed in stage 8) |
+
+Screenshots in `docs/screenshots/` (board-light 128,635 bytes, board-dark 127,161,
+patient-sheet 149,174, add-patient 74,914, summary 84,469, settings 120,852) were written by
+`WARDBELT_EVIDENCE=1 npx playwright test tests/e2e/screenshots.spec.ts`; an ordinary e2e run
+writes them to the Playwright output directory instead.
+
+Fix round after verification (2026-09-09, UTC 05:44 to 06:52). The verifier found the gate red
+on the `npm run test:e2e` step: `tests/e2e/dev-gallery.spec.ts` read the body background
+straight after the theme switch, racing the effect that sets `data-theme` (1 failure in 15
+isolated runs, 3 of 3 full runs on the verifier's machine). With the reads changed to
+`expect.poll`, `npx playwright test tests/e2e/dev-gallery.spec.ts --repeat-each 15` gave
+180 passed (2.3 min). The gate then ran GREEN three times with the fixes: in the worktree
+before the commit (HEAD `3c81d9a`, 101 s; e2e 37 passed in 56.6 s; gitleaks 22 commits, no
+leaks; clean clone 42 files, 483 tests), and twice from a fresh clone of the committed fixes
+(the commit was afterwards amended only to add this paragraph) invoked the way git invokes a
+hook (`.git/hooks/pre-push origin <url>` from the top of the working tree):
+through the `.git/hooks` symlink (102 s) and through `core.hooksPath` (99 s). Before the fix
+both installs resolved the repository root from the symlink's own path and failed at the
+bundle-size step (decision 8.12).
 
 ## How to reproduce
 
@@ -207,3 +271,10 @@ All commands from the repository root with dependencies installed (`npm ci`). No
    build` with `--no-build`; validate edits with `actionlint`. Lighthouse is not in CI because
    performance scores on shared runners vary run to run and would make the gate flaky; the
    script and the evidence file are the record.
+9. Pre-push gate: `scripts/pre-push.sh` (see README for installing it as a git hook). It
+   refuses to start while port 4173 is in use, so stop any preview server first. Set
+   `WARDBELT_TMP` to choose where the clean clone is made.
+10. Pages base path: `node scripts/check-base-path.mjs` (add `--keep` to inspect the temporary
+    build it makes).
+11. README screenshots: `WARDBELT_EVIDENCE=1 npx playwright test tests/e2e/screenshots.spec.ts`
+    rewrites `docs/screenshots/*.png`.
