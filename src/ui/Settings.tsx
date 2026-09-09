@@ -2,7 +2,10 @@
 // notification toggle is disabled when the browser has denied or cannot support notifications,
 // and turning it on while permission is still undecided also asks for it. Import reads the
 // chosen file with file.text() (FileReader fallback) and hands the text up unparsed; the
-// caller validates it (PLAN.md section 7). Delete everything is an inline two-step confirm.
+// caller validates it (PLAN.md section 7) and hands back `importError` to show inline, next
+// to the file it concerns. `exportText` is the last resort of the export chain (section 8): a
+// read-only textarea that selects itself on focus so the JSON can be copied by hand. Delete
+// everything is an inline two-step confirm.
 import { type Settings as SettingsRecord, type Theme } from '@domain/types';
 import { useId, useRef, useState } from 'preact/hooks';
 import { ConfirmButton } from './ConfirmButton';
@@ -24,6 +27,11 @@ export interface SettingsProps {
   onDeleteAll: () => void;
   onClose: () => void;
   inline?: boolean | undefined;
+  /** Rejection message from the last import attempt, shown next to the Import button. */
+  importError?: string | undefined;
+  /** Export JSON to show in a copyable textarea when it could not be shared or saved. */
+  exportText?: string | undefined;
+  onDismissExportText?: (() => void) | undefined;
 }
 
 const THEMES: readonly Theme[] = ['system', 'light', 'dark'];
@@ -41,6 +49,12 @@ export const STORAGE_LINE: Readonly<Record<StorageMode, string>> = {
   idb: 'Saving to this phone',
   memory: 'Not saving: storage unavailable',
 };
+
+export const EXPORT_TEXT_LABEL = 'The file could not be saved. Copy this text instead';
+
+function days(n: number): string {
+  return `${n} day${n === 1 ? '' : 's'}`;
+}
 
 interface TextBlob {
   text?: () => Promise<string>;
@@ -113,12 +127,17 @@ export function Settings(props: SettingsProps) {
     onDeleteAll,
     onClose,
     inline,
+    importError,
+    exportText,
+    onDismissExportText,
   } = props;
   const id = useId();
   const fileInput = useRef<HTMLInputElement>(null);
   const [purgeError, setPurgeError] = useState<string | undefined>(undefined);
-  const [importError, setImportError] = useState<string | undefined>(undefined);
+  const [readError, setReadError] = useState<string | undefined>(undefined);
   const purgeId = `${id}-purge`;
+  const exportId = `${id}-export`;
+  const importMessage = importError ?? readError;
   const notificationsBlocked =
     notificationState === 'denied' || notificationState === 'unsupported';
 
@@ -137,13 +156,13 @@ export function Settings(props: SettingsProps) {
     if (file === undefined) {
       return;
     }
-    setImportError(undefined);
+    setReadError(undefined);
     readFile(file)
       .then((text) => {
         onImportText(text);
       })
       .catch(() => {
-        setImportError('Could not read that file');
+        setReadError('Could not read that file');
       })
       .finally(() => {
         input.value = '';
@@ -239,7 +258,7 @@ export function Settings(props: SettingsProps) {
         </div>
         <div class="btn-row">
           <button type="button" class="btn" onClick={onPurge}>
-            Purge discharged older than {settings.purgeDays} days
+            Purge discharged older than {days(settings.purgeDays)}
           </button>
         </div>
       </section>
@@ -270,10 +289,32 @@ export function Settings(props: SettingsProps) {
             }}
           />
         </div>
-        {importError !== undefined && (
+        {importMessage !== undefined && (
           <p class="error-line" role="alert">
-            {importError}
+            {importMessage}
           </p>
+        )}
+        {exportText !== undefined && (
+          <div class="field">
+            <label class="field__label" for={exportId}>
+              {EXPORT_TEXT_LABEL}
+            </label>
+            <textarea
+              id={exportId}
+              class="field__input mono"
+              readOnly
+              rows={8}
+              value={exportText}
+              onFocus={(e) => {
+                e.currentTarget.select();
+              }}
+            />
+            <div class="btn-row">
+              <button type="button" class="btn" onClick={onDismissExportText}>
+                Done
+              </button>
+            </div>
+          </div>
         )}
         <p class="field__hint">
           {settings.lastExportAt === undefined

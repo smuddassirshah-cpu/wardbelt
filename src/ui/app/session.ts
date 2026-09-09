@@ -6,7 +6,13 @@
 // vibrate). Flows (complete, skip, discharge) own feedback and the undo toast so the views stay
 // presentational. The scheduler's notifier honours the notifications setting: off means
 // vibration only. The transient banner carries platform errors (notifier, feedback, service
-// worker, a rejected write chain) and clears itself after a few seconds.
+// worker, a rejected write chain) and clears itself after a few seconds. Actions are ignored
+// until the store has hydrated, so nothing can be written and then overwritten by the load.
+// Boot runs one PURGE_DISCHARGED (PLAN.md section 5 auto-purge) through the normal diff path.
+// Export runs the section 8 chain (share, download, textarea) from ./transfer; the textarea
+// text and an import rejection are signals the Settings sheet renders inline, because a banner
+// behind the sheet's scrim would go unseen. The weekly export nudge (section 9) is a computed
+// signal dismissed for the session only.
 import { isBeltComplete } from '@domain/patient';
 import { shiftStats, type ShiftStats } from '@domain/stats';
 import type { Action, Patient, PatientForm, Settings, State } from '@domain/types';
@@ -33,11 +39,20 @@ import type { TabLock } from './lock';
 import { nextStorageBanner, type StorageBanner } from './notices';
 import { setupServiceWorker, type RegisterSw } from './sw';
 import { createStore } from './store';
+import {
+  browserShare,
+  exportFileName,
+  exportText,
+  needsExportNudge,
+  type ExportOutcome,
+  type ShareApi,
+} from './transfer';
 
 export const LOCK_HELD_MESSAGE = 'Wardbelt is open in another tab';
 export const LOCK_RELEASED_MESSAGE = 'The other tab has closed. Reload to take over.';
 export const TRANSIENT_MS = 8000;
 export const EXPORT_FAILED = 'Export failed: the file could not be saved';
+export const IMPORT_REJECTED = 'Import rejected';
 export const RAW_EXPORT_FILENAME = 'wardbelt-unreadable-records.json';
 
 export interface Platform {
@@ -49,6 +64,8 @@ export interface Platform {
   swSupported: boolean;
   onVisible: (fn: () => void) => void;
   download: (filename: string, text: string) => boolean;
+  /** Web Share surface; undefined means the browser's navigator. */
+  share?: ShareApi | undefined;
   reducedMotion: () => boolean;
   version: string;
   bootTimeoutMs?: number | undefined;
@@ -80,7 +97,8 @@ export interface SessionActions {
   deletePatient: (patientId: string) => void;
   setSettings: (settings: Partial<Settings>) => void;
   requestNotifications: () => void;
-  exportData: () => void;
+  /** Never rejects: every failure is reported through the session's own surfaces. */
+  exportData: () => Promise<ExportOutcome>;
   importText: (text: string) => void;
   purgeDischarged: () => void;
   reset: () => void;
@@ -95,6 +113,10 @@ export interface Session {
   readonly banners: Banners;
   readonly updateReady: ReadonlySignal<boolean>;
   readonly toast: Signal<ToastItem | undefined>;
+  /** Export JSON to show in a copyable textarea when neither share nor download worked. */
+  readonly exportText: Signal<string | undefined>;
+  readonly importError: Signal<string | undefined>;
+  readonly exportNudge: ReadonlySignal<boolean>;
   readonly notifier: NotifierApi;
   readonly version: string;
   readonly actions: SessionActions;
@@ -102,6 +124,9 @@ export interface Session {
   dismissToast: () => void;
   dismissCorrupt: () => void;
   dismissTransient: () => void;
+  dismissNudge: () => void;
+  /** Clears the export textarea and the import error (Done button, sheet close). */
+  dismissTransfer: () => void;
   exportRawCorrupt: () => void;
   reloadForUpdate: () => void;
   /** Resolves when the lock is decided and the store is hydrated. */
@@ -117,6 +142,10 @@ export function createSession(platform: Platform): Session {
 
   const ready = signal(false);
   const readOnly = signal(false);
+  let hydrated = false;
+  const nudgeDismissed = signal(false);
+  const exportTextSignal = signal<string | undefined>(undefined);
+  const importError = signal<string | undefined>(undefined);
   const storageMode = signal<StorageMode>('idb');
   const toast = signal<ToastItem | undefined>(undefined);
   const banners: Banners = {
@@ -190,7 +219,7 @@ export function createSession(platform: Platform): Session {
   };
 
   const dispatch = (action: Action): boolean => {
-    if (readOnly.value) {
+    if (readOnly.value || !hydrated) {
       return false;
     }
     const before = state.value;
@@ -293,32 +322,47 @@ export function createSession(platform: Platform): Session {
         transient(describeError(e));
       });
     },
-    exportData: () => {
+    exportData: async () => {
       const s = state.value;
-      const exportedAt = new Date(clock.now()).toISOString();
+      const nowMs = clock.now();
+      const exportedAt = new Date(nowMs).toISOString();
       const file = buildExport(Object.values(s.patients), s.events, s.settings, exportedAt);
-      const name = `wardbelt-export-${exportedAt.slice(0, 10)}.json`;
-      if (!platform.download(name, serialiseExport(file))) {
-        transient(EXPORT_FAILED);
-        return;
+      const text = serialiseExport(file);
+      const outcome = await exportText(exportFileName(nowMs), text, {
+        share: platform.share ?? browserShare(),
+        download: platform.download,
+      });
+      if (outcome === 'textarea') {
+        exportTextSignal.value = text;
+      } else if (outcome !== 'cancelled') {
+        dispatch(factory.setSettings({ lastExportAt: exportedAt }));
+        showToast('Exported');
       }
-      dispatch(factory.setSettings({ lastExportAt: exportedAt }));
-      showToast('Exported');
+      return outcome;
     },
     importText: (text) => {
       const result = parseImport(text);
       if (!result.ok) {
-        const count =
-          result.failingRecords > 0 ? ` (${result.failingRecords} invalid records)` : '';
-        transient(`Import rejected: ${result.message}${count}`);
+        importError.value = `${IMPORT_REJECTED}: ${result.message}`;
         return;
       }
+      importError.value = undefined;
+      const n = result.value.patients.length;
       if (dispatch(factory.importData(result.value))) {
-        showToast(`Imported ${result.value.patients.length} patients`);
+        showToast(`Imported ${n} patient${n === 1 ? '' : 's'}`);
       }
     },
     purgeDischarged: () => {
-      dispatch(factory.purgeDischarged());
+      if (readOnly.value) {
+        return;
+      }
+      const before = Object.keys(state.value.patients).length;
+      if (!dispatch(factory.purgeDischarged())) {
+        showToast('Nothing to purge');
+        return;
+      }
+      const n = before - Object.keys(state.value.patients).length;
+      showToast(`Purged ${n} discharged patient${n === 1 ? '' : 's'}`);
     },
     reset: () => {
       if (dispatch(factory.reset())) {
@@ -338,6 +382,19 @@ export function createSession(platform: Platform): Session {
     banners,
     updateReady: computed(() => sw.updateReady.value),
     toast,
+    exportText: exportTextSignal,
+    importError,
+    exportNudge: computed(
+      () =>
+        ready.value &&
+        !readOnly.value &&
+        !nudgeDismissed.value &&
+        needsExportNudge(
+          state.value.settings,
+          Object.keys(state.value.patients).length,
+          state.value.now,
+        ),
+    ),
     notifier,
     version: platform.version,
     actions,
@@ -350,6 +407,13 @@ export function createSession(platform: Platform): Session {
     },
     dismissTransient: () => {
       banners.transient.value = undefined;
+    },
+    dismissNudge: () => {
+      nudgeDismissed.value = true;
+    },
+    dismissTransfer: () => {
+      exportTextSignal.value = undefined;
+      importError.value = undefined;
     },
     exportRawCorrupt: () => {
       if (!platform.download(RAW_EXPORT_FILENAME, exportRawStore(rawCorrupt))) {
@@ -378,11 +442,13 @@ export function createSession(platform: Platform): Session {
       rawCorrupt = booted.load.rawCorrupt;
       resolveRepo(booted.repo);
       store.hydrate(booted.load);
+      hydrated = true;
       refreshPermission();
       if (acquired.role === 'readonly') {
         readOnly.value = true;
         banners.lock.value = LOCK_HELD_MESSAGE;
       } else {
+        dispatch(factory.purgeDischarged());
         timers.start();
         timers.onVisible();
         platform.onVisible(() => {
