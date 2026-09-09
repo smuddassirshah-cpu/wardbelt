@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-09-09T01:55:04.744Z",
+  "axeVersion": "4.13.0",
+  "tags": ["wcag2a", "wcag2aa", "wcag21aa"],
+  "themes": {
+    "light": [
+      {
+        "scene": "board with an intake chip and an overdue check",
+        "violations": 0,
+        "violationIds": [],
+        "passes": 18,
+        "incomplete": 0,
+        "incompleteIds": [],
+        "inapplicable": 44,
+        "rulesRun": 62
+      },
+      {
+        "scene": "patient sheet with due times, a note and undo",
+        "violations": 0,
+        "violationIds": [],
+        "passes": 25,
+        "incomplete": 1,
+        "incompleteIds": [
+          "color-contrast (2 nodes needing manual review: Element's background color could not be determined because it's partially obscured by another element)"
+        ],
+        "inapplicable": 37,
+        "rulesRun": 63
+      }
+    ],
+    "dark": [
+      {
+        "scene": "board with an intake chip and an overdue check",
+        "violations": 0,
+        "violationIds": [],
+        "passes": 18,
+        "incomplete": 0,
+        "incompleteIds": [],
+        "inapplicable": 44,
+        "rulesRun": 62
+      },
+      {
+        "scene": "patient sheet with due times, a note and undo",
+        "violations": 0,
+        "violationIds": [],
+        "passes": 25,
+        "incomplete": 1,
+        "incompleteIds": [
+          "color-contrast (2 nodes needing manual review: Element's background color could not be determined because it's partially obscured by another element)"
+        ],
+        "inapplicable": 37,
+        "rulesRun": 63
+      }
+    ]
+  }
+}

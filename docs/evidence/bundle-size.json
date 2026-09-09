@@ -1,0 +1,33 @@
+{
+  "generatedAt": "2026-09-09T01:54:16.136Z",
+  "commit": "dd6b370",
+  "limitBytes": 60000,
+  "totalGzipBytes": 40761,
+  "files": [
+    {
+      "name": "assets/DevGallery-CT-gv7vt.js",
+      "raw": 8148,
+      "gzip": 2870
+    },
+    {
+      "name": "assets/index-BgkVBKBj.css",
+      "raw": 14927,
+      "gzip": 3131
+    },
+    {
+      "name": "assets/index-ClAHynj2.js",
+      "raw": 93674,
+      "gzip": 32402
+    },
+    {
+      "name": "assets/workbox-window.prod.es5-BBnX5xw4.js",
+      "raw": 5748,
+      "gzip": 2358
+    }
+  ],
+  "serviceWorker": {
+    "name": "sw.js",
+    "raw": 17972,
+    "gzip": 6048
+  }
+}
