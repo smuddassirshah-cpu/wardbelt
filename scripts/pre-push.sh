@@ -7,9 +7,11 @@
 # fresh bundle instead of testing a stale one. Stops at the first failure and prints a summary
 # either way. Usage: scripts/pre-push.sh (or install it as a git pre-push hook; see README).
 # Environment: WARDBELT_TMP overrides the directory the clean clone is made in.
+# ROOT comes from git, not from this file's path: installed as a hook the script is a symlink
+# under .git/hooks or core.hooksPath, and git runs hooks from the top of the working tree.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
 PREVIEW_PORT=4173

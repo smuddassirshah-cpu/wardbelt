@@ -7,8 +7,9 @@ summaries live in `docs/evidence/` and each carries its own timestamp and commit
 - Date of the runs: 2026-09-09. The stage 7 runs (UTC 01:43 to 01:58) were made at commit
   `dd6b370`; stage 8 re-ran every evidence script (UTC 02:20 to 02:21) at commit `3aa07b1`
   (main after the stage 7 merge, which holds every measured source and test), so each file in
-  `docs/evidence/` now names that commit. Every count below was identical on the re-run except
-  the Lighthouse performance metrics noted in that section, which are quoted from the re-run.
+  `docs/evidence/` now names that commit, except `coverage.json`, regenerated at `3c81d9a`
+  (see Coverage). Every count below was identical on the re-run except the Lighthouse
+  performance metrics noted in that section, which are quoted from the re-run.
 - Sources measured: commit `3aa07b1`. Nothing under `src/` changed between `dd6b370` and this
   commit, so `npm run build` produces the same artefacts: `assets/index-ClAHynj2.js`,
   `assets/index-BgkVBKBj.css`, `assets/DevGallery-CT-gv7vt.js`,
@@ -38,7 +39,11 @@ summaries live in `docs/evidence/` and each carries its own timestamp and commit
 From `npm test` (`vitest run --coverage`, v8 provider). The enforced gate is 100% on every
 metric for `src/domain/**` (vitest.config.ts); the other directories have no threshold. Table
 produced by `node scripts/coverage-table.mjs` from `coverage/coverage-summary.json` of that run
-(`docs/evidence/coverage.json`).
+(`docs/evidence/coverage.json`). Percentages are floored to two decimals, istanbul's own
+convention, so each cell is the figure `npm test` prints for the same counts; the script
+rounded before the stage 8 fix round (99.19% where vitest printed 99.18%), so the table and
+`coverage.json` were regenerated from a fresh `npm test` at commit `3c81d9a` (UTC 05:41, same
+counts as the `3aa07b1` run, `src/` unchanged).
 
 | scope                  | statements         | branches           | functions         | lines              |
 | ---------------------- | ------------------ | ------------------ | ----------------- | ------------------ |
@@ -52,11 +57,11 @@ produced by `node scripts/coverage-table.mjs` from `coverage/coverage-summary.js
 | src/domain/urgency.ts  | 100.00% (41/41)    | 100.00% (35/35)    | 100.00% (11/11)   | 100.00% (38/38)    |
 | src/domain/validate.ts | 100.00% (224/224)  | 100.00% (180/180)  | 100.00% (32/32)   | 100.00% (224/224)  |
 | src/domain (total)     | 100.00% (548/548)  | 100.00% (406/406)  | 100.00% (108/108) | 100.00% (532/532)  |
-| src/store (total)      | 100.00% (213/213)  | 96.30% (78/81)     | 100.00% (66/66)   | 100.00% (202/202)  |
+| src/store (total)      | 100.00% (213/213)  | 96.29% (78/81)     | 100.00% (66/66)   | 100.00% (202/202)  |
 | src/scheduler (total)  | 100.00% (164/164)  | 100.00% (89/89)    | 100.00% (45/45)   | 100.00% (155/155)  |
-| src/ui/app (total)     | 98.38% (486/494)   | 94.81% (292/308)   | 97.04% (131/135)  | 98.76% (479/485)   |
-| src/ui (total)         | 98.35% (416/423)   | 95.25% (341/358)   | 97.35% (147/151)  | 98.56% (410/416)   |
-| all files              | 99.19% (1827/1842) | 97.10% (1206/1242) | 98.42% (497/505)  | 99.33% (1778/1790) |
+| src/ui/app (total)     | 98.38% (486/494)   | 94.80% (292/308)   | 97.03% (131/135)  | 98.76% (479/485)   |
+| src/ui (total)         | 98.34% (416/423)   | 95.25% (341/358)   | 97.35% (147/151)  | 98.55% (410/416)   |
+| all files              | 99.18% (1827/1842) | 97.10% (1206/1242) | 98.41% (497/505)  | 99.32% (1778/1790) |
 
 The three uncovered store branches are the ones the stage 2 verifier noted (`db.ts:70`
 `newVersion ?? version`, `repo.ts:259` equal-id sort tie); the uncovered ui lines are
@@ -225,6 +230,20 @@ Screenshots in `docs/screenshots/` (board-light 128,635 bytes, board-dark 127,16
 patient-sheet 149,174, add-patient 74,914, summary 84,469, settings 120,852) were written by
 `WARDBELT_EVIDENCE=1 npx playwright test tests/e2e/screenshots.spec.ts`; an ordinary e2e run
 writes them to the Playwright output directory instead.
+
+Fix round after verification (2026-09-09, UTC 05:44 to 06:52). The verifier found the gate red
+on the `npm run test:e2e` step: `tests/e2e/dev-gallery.spec.ts` read the body background
+straight after the theme switch, racing the effect that sets `data-theme` (1 failure in 15
+isolated runs, 3 of 3 full runs on the verifier's machine). With the reads changed to
+`expect.poll`, `npx playwright test tests/e2e/dev-gallery.spec.ts --repeat-each 15` gave
+180 passed (2.3 min). The gate then ran GREEN three times with the fixes: in the worktree
+before the commit (HEAD `3c81d9a`, 101 s; e2e 37 passed in 56.6 s; gitleaks 22 commits, no
+leaks; clean clone 42 files, 483 tests), and twice from a fresh clone of the committed fixes
+(the commit was afterwards amended only to add this paragraph) invoked the way git invokes a
+hook (`.git/hooks/pre-push origin <url>` from the top of the working tree):
+through the `.git/hooks` symlink (102 s) and through `core.hooksPath` (99 s). Before the fix
+both installs resolved the repository root from the symlink's own path and failed at the
+bundle-size step (decision 8.12).
 
 ## How to reproduce
 

@@ -54,7 +54,7 @@ The app is published by this repository's Pages workflow at
 
 <p>
   <img src="docs/screenshots/add-patient.png" width="260" alt="The Add patient sheet: Name, Species buttons (Dog, Cat, Rabbit, Other), Procedure, Intake slot buttons (08:00, 09:00, 10:00, None), Kennel, Sex buttons and Breed" />
-  <img src="docs/screenshots/patient-sheet.png" width="260" alt="A patient sheet scrolled to the recovery steps: In theatre done at 10:00, Handover from theatre current with Done and Skip buttons, Post-op check 1 due 10:15 in red, checks 2 to 4 due 10:30, 10:45 and 11:00, each row with a Note button" />
+  <img src="docs/screenshots/patient-sheet.png" width="260" alt="A patient sheet at 10:31 scrolled to the recovery steps: In theatre done 10:00, Handover from theatre done 10:14, Post-op check 1 done 10:14, Post-op check 2 current with its cell outlined in red, Due 10:30 in red and Done and Skip buttons, checks 3 and 4 due 10:45 and 11:00, then Food and water, Take out and Pain score to do, each row with a Note button" />
 </p>
 
 1. Tap "Add patient" at the bottom of the board. Type the name and the procedure, tap the
@@ -235,8 +235,11 @@ ln -s "$PWD/scripts/pre-push.sh" ~/.githooks/wardbelt/pre-push
 git config core.hooksPath ~/.githooks/wardbelt
 ```
 
-Either way `git push` runs the whole gate first; `git push --no-verify` skips it. `gitleaks`
-must be on the PATH (`brew install gitleaks` on macOS).
+Either way `git push` runs the whole gate first; `git push --no-verify` skips it. The script
+finds the repository with `git rev-parse --show-toplevel` rather than from its own path, so it
+works through either symlink (git runs hooks from the top of the working tree) and by hand from
+any directory inside the checkout. `gitleaks` must be on the PATH (`brew install gitleaks` on
+macOS).
 
 ### Evidence
 
@@ -245,7 +248,7 @@ and `docs/evidence/` holds the machine-readable summaries with their date and co
 
 - Unit tests: 42 files, 483 tests. Coverage on `src/domain`: 100% of statements, branches,
   functions and lines (548/548, 406/406, 108/108, 532/532), enforced by `vitest.config.ts`.
-  All files: 99.19% statements, 97.10% branches.
+  All files: 99.18% statements, 97.10% branches.
 - End to end: 37 Playwright tests on the Pixel 5 profile against a fresh production build
   (flows, a scripted shift's stats, export/wipe/import, auto-purge, axe, install, screenshots),
   including an offline reload from the service worker and the second-tab lock.
@@ -369,7 +372,7 @@ MIT. See `LICENSE`.
 | Architecture tree and data flow                                                      | docs/PLAN.md sections 3 and 6; docs/DECISIONS.md 5.1 to 5.18 (src/ui/app wiring)                            |
 | Stack and reasons; runtime dependencies preact, @preact/signals, idb; pinned         | docs/PLAN.md sections 4 and 10; docs/DECISIONS.md 0.1 to 0.7                                                |
 | Dev gallery at #/dev renders every component state                                   | docs/PLAN.md section 11 stage 4 DoD; docs/DECISIONS.md 4.29 to 4.31                                         |
-| 42 unit test files, 483 tests; domain 100% (548/548, 406/406, 108/108, 532/532); all files 99.19% / 97.10% | docs/TESTING.md Gate and Coverage; docs/evidence/coverage.json                                    |
+| 42 unit test files, 483 tests; domain 100% (548/548, 406/406, 108/108, 532/532); all files 99.18% / 97.10% | docs/TESTING.md Gate and Coverage; docs/evidence/coverage.json                                    |
 | 37 Playwright tests including offline reload and the second-tab lock                 | docs/TESTING.md Stage 8 gate and Hardening checklist                                                        |
 | Lighthouse 100/100/100/100 with targets of 95                                        | docs/TESTING.md Lighthouse; docs/evidence/lighthouse.json                                                   |
 | Bundle 40.76 kB gzipped against 60 kB; first paint 35.53 kB                          | docs/TESTING.md Bundle size; docs/evidence/bundle-size.json                                                 |
@@ -378,7 +381,7 @@ MIT. See `LICENSE`.
 | Hardening 8 of 8 checks; CSP string                                                  | docs/TESTING.md Hardening checklist; docs/evidence/hardening.json                                           |
 | Install check contents                                                               | docs/TESTING.md Stage 8 gate; tests/e2e/install.spec.ts                                                     |
 | gitleaks over full history clean                                                     | docs/TESTING.md Stage 8 gate                                                                                |
-| Pre-push gate steps and hook install                                                 | scripts/pre-push.sh; docs/TESTING.md Stage 8 gate; docs/DECISIONS.md 8.6, 8.7, 8.9                          |
+| Pre-push gate steps and hook install                                                 | scripts/pre-push.sh; docs/TESTING.md Stage 8 gate; docs/DECISIONS.md 8.6, 8.7, 8.9, 8.12                    |
 | CI steps; Pages deploys only after CI success on main; VITE_BASE_PATH and version    | docs/PLAN.md section 8 (config); docs/DECISIONS.md 0.12, 8.5, 8.11; .github/workflows/ci.yml, pages.yml     |
 | Sub-path build has start_url and scope /wardbelt/ and loads /wardbelt/assets/        | docs/TESTING.md Stage 8 gate (check-base-path); scripts/check-base-path.mjs                                 |
 | Storage schema (database and three stores), memory fallback with banner              | docs/PLAN.md sections 5 and 8; docs/DECISIONS.md 2.2, 5.4, 5.8                                              |
