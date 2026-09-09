@@ -200,8 +200,10 @@ npm run typecheck      # tsc for the app and for the service worker
 `npx playwright install chromium`. The dev gallery at `http://localhost:5173/#/dev` renders
 every component in every state from fixtures; `?theme=dark` switches it.
 
-Evidence scripts, each with `--no-build` (measure the existing `dist/`) and `--write`
-(refresh `docs/evidence/*.json`, stamped with date and commit):
+Evidence scripts. The first three take `--no-build` (measure the existing `dist/`) and
+`--write` (refresh `docs/evidence/*.json`, stamped with date and commit); the coverage table
+takes `--write` only (it reads the last `npm test` run); the base-path check always builds
+into a temporary directory and takes `--base` and `--keep`:
 
 ```
 node scripts/bundle-size.mjs      # gzip total of dist/assets, exit 1 over 60 kB
@@ -351,7 +353,7 @@ MIT. See `LICENSE`.
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | Single-nurse, offline, no account, no server, no clinical decision support           | docs/PLAN.md section 1 (scope, non-goals)                                                                  |
 | 19 belt cells and their two-letter codes, phases, "current" is the first to-do; custom task codes | docs/PLAN.md section 6 (task model); docs/DECISIONS.md 0.8, 0.16, 4.10                              |
-| Post-op checks at +15/30/45/60 min from "In theatre" done                            | docs/PLAN.md section 6; docs/TESTING.md hardening checklist (flows e2e "theatre checks")                   |
+| Post-op checks at +15/30/45/60 min from "In theatre" done                            | docs/PLAN.md section 6; tests/e2e/flows.spec.ts ("completing in theatre schedules the four checks at +15/30/45/60") |
 | Board order: overdue, due within five minutes, intake tag, created                   | docs/PLAN.md section 3 (urgency.ts); docs/DECISIONS.md 1.3                                                  |
 | Add a patient in at most eight taps                                                  | docs/PLAN.md section 11 stage 5 DoD; tests/e2e/flows.spec.ts                                               |
 | Completion feedback: 30 ms buzz, green fill, 4 s toast with Undo                     | docs/PLAN.md section 10 (completion feedback); docs/DECISIONS.md 4.26                                       |

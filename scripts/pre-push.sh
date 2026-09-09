@@ -18,6 +18,7 @@ PREVIEW_PORT=4173
 STEPS=()
 GATE_START=$(date +%s)
 CLONE_DIR=""
+TMP_PARENT=""
 
 print_summary() {
   local total=$(( $(date +%s) - GATE_START ))
@@ -32,6 +33,9 @@ print_summary() {
 cleanup() {
   if [[ -n "$CLONE_DIR" && -d "$CLONE_DIR" ]]; then
     rm -rf "$CLONE_DIR"
+  fi
+  if [[ -n "$TMP_PARENT" && -d "$TMP_PARENT" ]]; then
+    rmdir "$TMP_PARENT" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -73,7 +77,13 @@ secrets_scan() {
 }
 
 clean_clone() {
-  local base="${WARDBELT_TMP:-$(mktemp -d)}"
+  local base
+  if [[ -n "${WARDBELT_TMP:-}" ]]; then
+    base="$WARDBELT_TMP"
+  else
+    base="$(mktemp -d)"
+    TMP_PARENT="$base"
+  fi
   CLONE_DIR="$base/wardbelt-clean-clone"
   rm -rf "$CLONE_DIR"
   if [[ -n "$(git status --porcelain)" ]]; then
