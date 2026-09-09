@@ -1,6 +1,6 @@
 # Build state
 
-Current stage: 8 merged; confirming deploy
+Current stage: 8 complete; deployed
 Last updated: 2026-09-09
 Mode: autonomous one-shot (see CLAUDE.md)
 
@@ -650,5 +650,7 @@ Running log. One line each: date, decision, reason, PLAN.md deviation? y/n.
 Anything blocking or deferred, with the stage it affects.
 
 ## Next action
-Orchestrator: confirm the CI run and Pages deploy for the stage 8 merge on main, check the deployed manifest and service worker, then set this line to none: deployed.
+none: deployed
+
+Deploy confirmation (orchestrator, 2026-09-09): CI run and Pages run for main commit 5b76ee9 both completed with conclusion success. Live checks against https://smuddassirshah-cpu.github.io/wardbelt/ : index 200 with the CSP meta; manifest.webmanifest 200 (name Wardbelt, start_url and scope /wardbelt/, display standalone, icons 192, 512 and maskable 512, each served 200 image/png); sw.js 200 (17 precache entries including index.html); all asset references under /wardbelt/assets/. Playwright Pixel 5 against the live URL: navigator.serviceWorker.ready resolves with scope /wardbelt/, the controller is /wardbelt/sw.js after reload, an offline reload still renders the board, the empty state and the 48 px Add patient button render after hydration, zero console errors.
 
