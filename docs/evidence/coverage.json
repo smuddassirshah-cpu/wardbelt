@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-09-09T01:56:24.082Z",
+  "commit": "dd6b370",
+  "domainFiles": [
+    {
+      "file": "src/domain/patient.ts",
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    {
+      "file": "src/domain/recovery.ts",
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    {
+      "file": "src/domain/reducer.ts",
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    {
+      "file": "src/domain/stats.ts",
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    {
+      "file": "src/domain/template.ts",
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    {
+      "file": "src/domain/time.ts",
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    {
+      "file": "src/domain/types.ts",
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    {
+      "file": "src/domain/urgency.ts",
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    {
+      "file": "src/domain/validate.ts",
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    }
+  ],
+  "totals": {
+    "src/domain": {
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    "src/store": {
+      "statements": 100,
+      "branches": 96.3,
+      "functions": 100,
+      "lines": 100
+    },
+    "src/scheduler": {
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    },
+    "src/ui/app": {
+      "statements": 98.38,
+      "branches": 94.81,
+      "functions": 97.04,
+      "lines": 98.76
+    },
+    "src/ui": {
+      "statements": 98.35,
+      "branches": 95.25,
+      "functions": 97.35,
+      "lines": 98.56
+    }
+  },
+  "allFiles": {
+    "statements": 99.18,
+    "branches": 97.1,
+    "functions": 98.41,
+    "lines": 99.32
+  }
+}

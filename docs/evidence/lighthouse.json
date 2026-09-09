@@ -1,0 +1,90 @@
+{
+  "generatedAt": "2026-09-09T01:57:51.020Z",
+  "commit": "dd6b370",
+  "command": "node scripts/lighthouse.mjs --no-build --write",
+  "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "target": 0.95,
+  "current": {
+    "lighthouseVersion": "13.4.1",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "formFactor": "mobile",
+    "throttlingMethod": "simulate",
+    "url": "http://localhost:4173/",
+    "categories": {
+      "performance": 1,
+      "accessibility": 1,
+      "best-practices": 1
+    },
+    "auditCounts": {
+      "performance": {
+        "total": 49,
+        "passed": 29,
+        "notApplicable": 5,
+        "manual": 0,
+        "informative": 12
+      },
+      "accessibility": {
+        "total": 76,
+        "passed": 15,
+        "notApplicable": 51,
+        "manual": 10,
+        "informative": 0
+      },
+      "best-practices": {
+        "total": 21,
+        "passed": 13,
+        "notApplicable": 1,
+        "manual": 0,
+        "informative": 7
+      }
+    },
+    "metrics": {
+      "first-contentful-paint": "1.2 s",
+      "largest-contentful-paint": "1.4 s",
+      "total-blocking-time": "0 ms",
+      "cumulative-layout-shift": "0",
+      "speed-index": "1.2 s"
+    },
+    "failingAudits": [
+      {
+        "category": "performance",
+        "id": "first-contentful-paint",
+        "score": 0.99,
+        "displayValue": "1.2 s"
+      },
+      {
+        "category": "performance",
+        "id": "network-dependency-tree-insight",
+        "score": 0,
+        "displayValue": ""
+      },
+      {
+        "category": "performance",
+        "id": "render-blocking-insight",
+        "score": 0,
+        "displayValue": "Est savings of 150 ms"
+      }
+    ]
+  },
+  "pwa": {
+    "lighthouseVersion": "11.7.1",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "formFactor": "mobile",
+    "throttlingMethod": "simulate",
+    "url": "http://localhost:4173/",
+    "categories": {
+      "pwa": 1
+    },
+    "auditCounts": {
+      "pwa": {
+        "total": 9,
+        "passed": 6,
+        "notApplicable": 0,
+        "manual": 3,
+        "informative": 0
+      }
+    },
+    "metrics": {},
+    "failingAudits": []
+  }
+}

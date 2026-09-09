@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-09-09T01:54:16.257Z",
+  "commit": "dd6b370",
+  "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'",
+  "precacheEntries": 13,
+  "precacheUrls": [
+    "manifest.webmanifest",
+    "index.html",
+    "icons/icon-maskable-512.png",
+    "icons/icon-512.png",
+    "icons/icon-192.png",
+    "assets/workbox-window.prod.es5-BBnX5xw4.js",
+    "assets/index-ClAHynj2.js",
+    "assets/index-BgkVBKBj.css",
+    "assets/DevGallery-CT-gv7vt.js"
+  ],
+  "checks": [
+    {
+      "name": "CSP meta present in dist/index.html",
+      "ok": true,
+      "detail": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'"
+    },
+    {
+      "name": "no inline script, handler attribute or javascript: URL in dist/index.html",
+      "ok": true,
+      "detail": "0 inline scripts, 0 handlers, 0 javascript: URLs"
+    },
+    {
+      "name": "no console call in dist/assets/*.js",
+      "ok": true,
+      "detail": "0 matches across 4 files"
+    },
+    {
+      "name": "sw.js console use limited to the Workbox no-revision guard",
+      "ok": true,
+      "detail": "1 match(es): console.warn; guard text present"
+    },
+    {
+      "name": "sw.js precaches index.html, the manifest and every asset",
+      "ok": true,
+      "detail": "13 entries (9 unique), missing: none"
+    },
+    {
+      "name": "every precache entry has a revision key (Workbox guard cannot fire)",
+      "ok": true,
+      "detail": "all entries carry revision"
+    },
+    {
+      "name": "manifest is installable",
+      "ok": true,
+      "detail": "display standalone, icons 192x192/512x512, maskable true"
+    },
+    {
+      "name": "no eval or Function constructor in dist JS",
+      "ok": true,
+      "detail": "0 matches"
+    }
+  ]
+}
