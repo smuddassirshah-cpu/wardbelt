@@ -3,7 +3,8 @@
 // all pure or injectable so the session tests run with fakes. Web Share is attempted only
 // when the browser can share a File; a share the nurse dismisses (AbortError) is reported as
 // cancelled and nothing else happens, while any other share failure falls through to the
-// download. The textarea outcome is never a failure: the caller shows the text. The file name
+// download. A download that returns false or throws ends in the textarea, which is never a
+// failure: the caller shows the text, so exportText itself never rejects. The file name
 // carries the local calendar date because that is the date the nurse reads on the ward clock.
 import { DAY_MS } from '@domain/time';
 import type { Settings } from '@domain/types';
@@ -76,7 +77,11 @@ export async function exportText(
   if (shared !== undefined) {
     return shared;
   }
-  return deps.download(name, text) ? 'downloaded' : 'textarea';
+  try {
+    return deps.download(name, text) ? 'downloaded' : 'textarea';
+  } catch {
+    return 'textarea';
+  }
 }
 
 /** The browser's own share surface, or an empty object where Web Share does not exist. */

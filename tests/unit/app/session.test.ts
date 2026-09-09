@@ -435,6 +435,35 @@ describe('settings, transfer and scheduler wiring', () => {
     expect(repo.calls.map((c) => c.op)).toEqual(['saveSettings', 'deletePatient', 'clearAll']);
   });
 
+  it('reports nothing to purge once the wall clock has moved since the last action', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientDischarged(), patientFresh()] };
+    const { platform, session } = await booted({ repo });
+    platform.clock.advance(1);
+    session.actions.purgeDischarged();
+    expect(session.toast.value?.message).toBe('Nothing to purge');
+    platform.clock.advance(60_000);
+    session.actions.purgeDischarged();
+    expect(session.toast.value?.message).toBe('Nothing to purge');
+    expect(Object.keys(session.state.value.patients).sort()).toEqual(['p-discharged', 'p-fresh']);
+    await session.flush();
+    expect(repo.calls).toEqual([]);
+  });
+
+  it('keeps the undo toast when the clock moved but there was nothing to undo', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientFresh()] };
+    const { platform, session } = await booted({ repo });
+    session.actions.complete('p-fresh', templateTaskId('p-fresh', 'handover_admit'));
+    const shown = session.toast.value;
+    expect(shown?.undoPatientId).toBe('p-fresh');
+    platform.clock.advance(1);
+    session.actions.undo('p-missing');
+    expect(session.toast.value).toBe(shown);
+    session.actions.undo('p-fresh');
+    expect(session.toast.value).toBeUndefined();
+  });
+
   it('shows a notification for due checks only when the setting is on and permission granted', async () => {
     const showNotification = vi.fn(() => Promise.resolve());
     const getRegistration = vi.fn(() => Promise.resolve({ showNotification }));

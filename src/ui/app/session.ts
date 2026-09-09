@@ -8,6 +8,8 @@
 // vibration only. The transient banner carries platform errors (notifier, feedback, service
 // worker, a rejected write chain) and clears itself after a few seconds. Actions are ignored
 // until the store has hydrated, so nothing can be written and then overwritten by the load.
+// The session's dispatch reports whether a record changed, not whether `now` moved (the store
+// republishes on every action), so purge, undo and delete can tell a no-op apart.
 // Boot runs one PURGE_DISCHARGED (PLAN.md section 5 auto-purge) through the normal diff path.
 // Export runs the section 8 chain (share, download, textarea) from ./transfer; the textarea
 // text and an import rejection are signals the Settings sheet renders inline, because a banner
@@ -37,6 +39,7 @@ import { describeError } from './errors';
 import { createIdSource, type IdSource } from './ids';
 import type { TabLock } from './lock';
 import { nextStorageBanner, type StorageBanner } from './notices';
+import { hasPersistableChange } from './persist';
 import { setupServiceWorker, type RegisterSw } from './sw';
 import { createStore } from './store';
 import {
@@ -218,13 +221,14 @@ export function createSession(platform: Platform): Session {
     toast.value = item;
   };
 
+  /** True when the reducer changed a record; the store also republishes when only `now` moved. */
   const dispatch = (action: Action): boolean => {
     if (readOnly.value || !hydrated) {
       return false;
     }
     const before = state.value;
     store.dispatch(action);
-    return state.value !== before;
+    return hasPersistableChange(before, state.value);
   };
 
   /** Completion feedback: the three-pulse pattern once nothing is left on the belt. */
@@ -353,16 +357,15 @@ export function createSession(platform: Platform): Session {
       }
     },
     purgeDischarged: () => {
-      if (readOnly.value) {
+      if (readOnly.value || !hydrated) {
         return;
       }
       const before = Object.keys(state.value.patients).length;
-      if (!dispatch(factory.purgeDischarged())) {
-        showToast('Nothing to purge');
-        return;
-      }
+      dispatch(factory.purgeDischarged());
       const n = before - Object.keys(state.value.patients).length;
-      showToast(`Purged ${n} discharged patient${n === 1 ? '' : 's'}`);
+      showToast(
+        n === 0 ? 'Nothing to purge' : `Purged ${n} discharged patient${n === 1 ? '' : 's'}`,
+      );
     },
     reset: () => {
       if (dispatch(factory.reset())) {

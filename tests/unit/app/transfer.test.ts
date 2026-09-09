@@ -79,11 +79,17 @@ describe('exportText fallback chain', () => {
     expect(download).not.toHaveBeenCalled();
   });
 
-  it('ends in the textarea when the download fails too', async () => {
+  it('ends in the textarea when the download fails or throws', async () => {
     const download = vi.fn(() => false);
     await expect(exportText(NAME, TEXT, { share: shareApi(false), download })).resolves.toBe(
       'textarea',
     );
+    const throwing = vi.fn((): boolean => {
+      throw new Error('download blocked');
+    });
+    await expect(
+      exportText(NAME, TEXT, { share: shareApi(false), download: throwing }),
+    ).resolves.toBe('textarea');
   });
 
   it('skips sharing when the File constructor is missing', async () => {
