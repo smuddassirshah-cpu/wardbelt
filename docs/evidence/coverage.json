@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-09T01:56:24.082Z",
-  "commit": "dd6b370",
+  "generatedAt": "2026-09-09T02:20:31.171Z",
+  "commit": "3aa07b1",
   "domainFiles": [
     {
       "file": "src/domain/patient.ts",

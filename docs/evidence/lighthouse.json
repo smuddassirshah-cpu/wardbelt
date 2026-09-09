@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-09T01:57:51.020Z",
-  "commit": "dd6b370",
+  "generatedAt": "2026-09-09T02:21:07.426Z",
+  "commit": "3aa07b1",
   "command": "node scripts/lighthouse.mjs --no-build --write",
   "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "target": 0.95,
@@ -18,7 +18,7 @@
     "auditCounts": {
       "performance": {
         "total": 49,
-        "passed": 29,
+        "passed": 28,
         "notApplicable": 5,
         "manual": 0,
         "informative": 12
@@ -40,8 +40,8 @@
     },
     "metrics": {
       "first-contentful-paint": "1.2 s",
-      "largest-contentful-paint": "1.4 s",
-      "total-blocking-time": "0 ms",
+      "largest-contentful-paint": "1.5 s",
+      "total-blocking-time": "10 ms",
       "cumulative-layout-shift": "0",
       "speed-index": "1.2 s"
     },
@@ -63,6 +63,12 @@
         "id": "render-blocking-insight",
         "score": 0,
         "displayValue": "Est savings of 150 ms"
+      },
+      {
+        "category": "performance",
+        "id": "max-potential-fid",
+        "score": 0.99,
+        "displayValue": "80 ms"
       }
     ]
   },

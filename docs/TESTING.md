@@ -4,12 +4,15 @@ Stage 7 of the build (PLAN.md section 11). Every number below was produced by a 
 repository on the date stated; nothing is typed in from memory. The trimmed machine-readable
 summaries live in `docs/evidence/` and each carries its own timestamp and commit.
 
-- Date of the runs: 2026-09-09 (UTC 01:43 to 01:58).
-- Sources measured: commit `dd6b370` (main after the stage 6 merge). Stage 7 adds only scripts,
-  tests, CI steps and these documents, so `npm run build` at the stage 7 commit produces the
-  same artefacts: `assets/index-ClAHynj2.js`, `assets/index-BgkVBKBj.css`,
-  `assets/DevGallery-CT-gv7vt.js`, `assets/workbox-window.prod.es5-BBnX5xw4.js`, `sw.js`
-  with 13 precache entries.
+- Date of the runs: 2026-09-09. The stage 7 runs (UTC 01:43 to 01:58) were made at commit
+  `dd6b370`; stage 8 re-ran every evidence script (UTC 02:20 to 02:21) at commit `3aa07b1`
+  (main after the stage 7 merge, which holds every measured source and test), so each file in
+  `docs/evidence/` now names that commit. Every count below was identical on the re-run except
+  the Lighthouse performance metrics noted in that section, which are quoted from the re-run.
+- Sources measured: commit `3aa07b1`. Nothing under `src/` changed between `dd6b370` and this
+  commit, so `npm run build` produces the same artefacts: `assets/index-ClAHynj2.js`,
+  `assets/index-BgkVBKBj.css`, `assets/DevGallery-CT-gv7vt.js`,
+  `assets/workbox-window.prod.es5-BBnX5xw4.js`, `sw.js` with 13 precache entries.
 - Machine: macOS (Darwin 25.6.0, arm64), Node v22.16.0, npm 10.9.2, Google Chrome 152
   (HeadlessChrome/152.0.0.0), Playwright 1.63.0 with the Pixel 5 profile, Vitest 4.1.11,
   axe-core 4.13.0 via @axe-core/playwright 4.13.0.
@@ -77,15 +80,17 @@ npx --yes lighthouse@11.7.1 http://localhost:4173/ --only-categories=pwa --chrom
 | Category       | Score | Target | Lighthouse | Audits                                                   |
 | -------------- | ----- | ------ | ---------- | -------------------------------------------------------- |
 | PWA            | 100   | >= 95  | 11.7.1     | 9: 6 passed (installable-manifest, splash-screen, themed-omnibox, content-width, viewport, maskable-icon), 3 manual |
-| Performance    | 100   | >= 95  | 13.4.1     | 49: 29 passed, 5 not applicable, 12 informative, 3 below 1 (see note) |
+| Performance    | 100   | >= 95  | 13.4.1     | 49: 28 passed, 5 not applicable, 12 informative, 4 below 1 (see note) |
 | Accessibility  | 100   | >= 95  | 13.4.1     | 76: 15 passed, 51 not applicable, 10 manual, 0 failed    |
 | Best practices | 100   | none   | 13.4.1     | 21: 13 passed, 1 not applicable, 7 informative, 0 failed |
 
-Metrics (13.4.1, simulated mobile): first contentful paint 1.2 s, largest contentful paint
-1.4 s, total blocking time 0 to 10 ms across runs, cumulative layout shift 0, speed index 1.2 s.
+Metrics (13.4.1, simulated mobile, stage 8 re-run at `3aa07b1`): first contentful paint 1.2 s,
+largest contentful paint 1.5 s (1.4 s on the stage 7 runs), total blocking time 10 ms (0 to
+10 ms across runs), cumulative layout shift 0, speed index 1.2 s.
 
 Audits scored below 1 on the performance category, none of which lowers the score:
 `first-contentful-paint` 0.99 (1.2 s, weight 10, within the "good" band);
+`max-potential-fid` 0.99 (80 ms, weight 0, scored 1 on the stage 7 runs);
 `network-dependency-tree-insight` and `render-blocking-insight` score 0 but carry weight 0 (the
 "insights" group). The render-blocking item is the 3.1 kB stylesheet
 (`assets/index-BgkVBKBj.css`, estimated 150 ms). Removing it would mean inlining the CSS, which
@@ -94,8 +99,8 @@ score is already 100, so it is recorded rather than changed. Cache headers canno
 controlled on `vite preview` or GitHub Pages and no audit penalised them.
 
 Lighthouse 13.4.1 declares `node >= 22.19` and printed an `EBADENGINE` warning on Node 22.16.0;
-it ran to completion and produced a complete report. Three runs (two through the script, one by
-hand) gave the same four scores.
+it ran to completion and produced a complete report. Four runs (three in stage 7, one in stage
+8) gave the same four scores.
 
 ## axe
 
