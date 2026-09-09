@@ -184,7 +184,47 @@ Each line says how it was verified. Static checks over `dist/` are `node scripts
 | Clock backwards jump | `tests/unit/hardening/clock-jump.test.tsx`: session on the fake clock with an overdue check; clock set 60 min back then swept: no throw, `state.now` follows, chip reads `C1 in 55:00`, stored `dueAt` unchanged, one timer armed, urgency returns to due-soon then overdue as time advances; forward jump of 60 min: `C1 overdue 65:00`, row first; shift window and stats coherent either side. Also `tests/unit/scheduler/timers.test.ts` "neither throws nor notifies on a backwards clock jump" | 3 passed |
 | Reduced motion | `tests/e2e/dev-gallery.spec.ts` "reduced motion zeroes animation and transition durations" (`emulateMedia reducedMotion`, done cell, overdue cell and progress fill all `0s`) | passed |
 | Touch targets 48 px | `tests/e2e/dev-gallery.spec.ts` "every visible interactive element is at least 48 by 48" (more than 200 measured), `tests/e2e/flows.spec.ts` "board and add sheet are axe clean with 48 px targets", `tests/e2e/a11y.spec.ts` (board with data and open sheet, both themes) | passed |
-| No secret in the tree | `.gitignore` covers `.env*`; the stage 0 `gitleaks detect` run was clean and stage 8 repeats it over the full history | see stage 8 |
+| No secret in the tree | `.gitignore` covers `.env*`; `gitleaks detect --source . --no-banner` over the full history is a step of `scripts/pre-push.sh` | PASS: 21 commits scanned, no leaks found (stage 8 gate below) |
+
+## Stage 8 gate
+
+`scripts/pre-push.sh` run on 2026-09-09 at commit `5ca912e` (the stage 8 implementation
+commit; this section was added in the commit that follows it, and the gate was re-run there
+with the same result, recorded in the stage 8 report in STATE.md), exit 0. Every step calls
+the commands above; the summary the script printed:
+
+```
+==== pre-push summary (stage-8-release, HEAD 5ca912e) ====
+PASS  preview port 4173 is free (0 s)
+PASS  npm run lint (8 s)
+PASS  npm run typecheck (3 s)
+PASS  npm test (11 s)
+PASS  npm run build (2 s)
+PASS  bundle size (scripts/bundle-size.mjs) (0 s)
+PASS  hardening checks (scripts/hardening.mjs) (0 s)
+PASS  Pages base path (scripts/check-base-path.mjs) (1 s)
+PASS  npm run test:e2e (57 s)
+PASS  gitleaks detect (full history) (1 s)
+PASS  clean clone: npm ci, build, test (18 s)
+total 101 s
+
+pre-push gate GREEN
+```
+
+What the stage 8 steps add to the stage 7 gate:
+
+| Step | Result |
+| ---- | ------ |
+| `npm run test:e2e` | 37 passed (57.0 s): the 33 stage 7 tests plus `tests/e2e/install.spec.ts` (3: manifest installable with name, short_name, standalone, start_url and scope equal to the app base, theme_color, 192/512/maskable-512 icons fetched as PNGs; manifest link and apple-touch-icon present and fetched; `navigator.serviceWorker.ready` resolves with the app scope and the controller is `sw.js` after a reload) and `tests/e2e/screenshots.spec.ts` (1: the README scene on Pixel 5 under the Playwright clock, six PNGs each asserted under 300 kB) |
+| `node scripts/check-base-path.mjs` | `VITE_BASE_PATH=/wardbelt/ vite build` into a temporary directory: start_url `/wardbelt/`, scope `/wardbelt/`, 2 of 2 asset references start with `/wardbelt/assets/`, manifest linked at `/wardbelt/manifest.webmanifest`, no absolute reference outside the base, `/wardbelt/sw.js` referenced by the bundle, sw.js emitted; 7 of 7 checks passed, `dist/` untouched |
+| `gitleaks detect --source . --no-banner` | 21 commits scanned, about 1.34 MB in 263 ms, no leaks found |
+| clean clone | `git clone` of HEAD `5ca912e` into a temporary directory, `npm ci` (518 packages), `npm run build`, `npm test`: 42 files, 483 tests passed, coverage 99.18% statements, 97.1% branches, 98.41% functions, 99.32% lines, domain thresholds met |
+| `actionlint` | no findings on `ci.yml` and `pages.yml` (neither changed in stage 8) |
+
+Screenshots in `docs/screenshots/` (board-light 128,635 bytes, board-dark 127,161,
+patient-sheet 149,174, add-patient 74,914, summary 84,469, settings 120,852) were written by
+`WARDBELT_EVIDENCE=1 npx playwright test tests/e2e/screenshots.spec.ts`; an ordinary e2e run
+writes them to the Playwright output directory instead.
 
 ## How to reproduce
 
@@ -212,3 +252,10 @@ All commands from the repository root with dependencies installed (`npm ci`). No
    build` with `--no-build`; validate edits with `actionlint`. Lighthouse is not in CI because
    performance scores on shared runners vary run to run and would make the gate flaky; the
    script and the evidence file are the record.
+9. Pre-push gate: `scripts/pre-push.sh` (see README for installing it as a git hook). It
+   refuses to start while port 4173 is in use, so stop any preview server first. Set
+   `WARDBELT_TMP` to choose where the clean clone is made.
+10. Pages base path: `node scripts/check-base-path.mjs` (add `--keep` to inspect the temporary
+    build it makes).
+11. README screenshots: `WARDBELT_EVIDENCE=1 npx playwright test tests/e2e/screenshots.spec.ts`
+    rewrites `docs/screenshots/*.png`.

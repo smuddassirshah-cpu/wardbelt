@@ -157,7 +157,7 @@ tests/
   unit/        Vitest: domain, store (fake-indexeddb), scheduler (fake clock), ui, app
   e2e/         Playwright on the Pixel 5 profile against the production build
   fixtures/    synthetic data only
-scripts/       evidence and gate scripts (bundle size, hardening, Lighthouse, coverage
+scripts/       icon generation, evidence and gate scripts (bundle size, hardening, Lighthouse, coverage
                table, Pages base path, pre-push)
 docs/          PLAN.md (the binding blueprint), DECISIONS.md, TESTING.md, evidence/, screenshots/
 .github/       ci.yml (lint, typecheck, unit, build, bundle size, hardening, e2e), pages.yml
@@ -246,6 +246,9 @@ and `docs/evidence/` holds the machine-readable summaries with their date and co
 - Unit tests: 42 files, 483 tests. Coverage on `src/domain`: 100% of statements, branches,
   functions and lines (548/548, 406/406, 108/108, 532/532), enforced by `vitest.config.ts`.
   All files: 99.19% statements, 97.10% branches.
+- End to end: 37 Playwright tests on the Pixel 5 profile against a fresh production build
+  (flows, a scripted shift's stats, export/wipe/import, auto-purge, axe, install, screenshots),
+  including an offline reload from the service worker and the second-tab lock.
 - Lighthouse, mobile profile, production build: PWA 100, performance 100, accessibility 100,
   best practices 100 (targets were 95 for the first three).
 - Bundle: 40.76 kB gzipped for every JS and CSS asset including the lazy chunks, against a
@@ -282,14 +285,16 @@ publish. Once it has, the app is at `https://smuddassirshah-cpu.github.io/wardbe
   intake slot, free-text notes, optional owner phone, the time admitted, back from theatre and
   discharged, and each task with its status, due time, done time and note. An append-only list
   of events (patient added, task added, completed, skipped, undone, theatre return, discharged)
-  with timestamps.
-  Settings (notifications, sound, theme, purge days, owner-phone field, last export time).
+  with timestamps. Settings (notifications, sound, theme, purge days, owner-phone field, last
+  export time).
 - Where: IndexedDB on the handset under the app's origin, database `wardbelt`, object stores
   `patients` (keyed by id, index on status), `events` (keyed by id, index on time) and
   `settings` (keyed by name). Encryption at rest is whatever the handset's storage encryption
   provides; the app adds none, because no key could be held that the same device could not
   read. If IndexedDB cannot be opened (private mode, quota, corruption) the app runs in memory
-  for the session and shows "Not saving: storage unavailable" the whole time.
+  for the session and shows "Not saving: storage unavailable" the whole time; a stored record
+  that fails validation at boot is skipped and counted in a dismissible banner that offers an
+  export of the raw rows for recovery.
 - Retention and purge: discharged patients and their events are removed after 30 days by
   default (1 to 365 configurable), or on demand with "Purge discharged", or all at once with
   "Delete everything". Active patients are kept until discharged or deleted.
@@ -365,6 +370,7 @@ MIT. See `LICENSE`.
 | Stack and reasons; runtime dependencies preact, @preact/signals, idb; pinned         | docs/PLAN.md sections 4 and 10; docs/DECISIONS.md 0.1 to 0.7                                                |
 | Dev gallery at #/dev renders every component state                                   | docs/PLAN.md section 11 stage 4 DoD; docs/DECISIONS.md 4.29 to 4.31                                         |
 | 42 unit test files, 483 tests; domain 100% (548/548, 406/406, 108/108, 532/532); all files 99.19% / 97.10% | docs/TESTING.md Gate and Coverage; docs/evidence/coverage.json                                    |
+| 37 Playwright tests including offline reload and the second-tab lock                 | docs/TESTING.md Stage 8 gate and Hardening checklist                                                        |
 | Lighthouse 100/100/100/100 with targets of 95                                        | docs/TESTING.md Lighthouse; docs/evidence/lighthouse.json                                                   |
 | Bundle 40.76 kB gzipped against 60 kB; first paint 35.53 kB                          | docs/TESTING.md Bundle size; docs/evidence/bundle-size.json                                                 |
 | axe 0 violations, four scenes, both themes; 48 px targets                            | docs/TESTING.md axe; docs/evidence/axe.json                                                                 |
