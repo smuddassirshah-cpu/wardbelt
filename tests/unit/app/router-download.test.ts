@@ -113,16 +113,43 @@ describe('downloadText', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake');
   });
 
-  it('returns false when the anchor cannot be created', () => {
-    vi.stubGlobal(
-      'URL',
-      Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => undefined }),
-    );
+  it('returns false when the anchor cannot be created and revokes the URL at once', () => {
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL }));
     const doc = {
       createElement: () => {
         throw new Error('no dom');
       },
     } as unknown as Document;
     expect(downloadText('a.json', '{}', doc)).toBe(false);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:x');
+  });
+
+  it('returns false with nothing to revoke when the object URL cannot be created', () => {
+    const revokeObjectURL = vi.fn();
+    const createObjectURL = () => {
+      throw new Error('object URLs blocked');
+    };
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
+    expect(downloadText('a.json', '{}')).toBe(false);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    expect(document.querySelectorAll('a[download]')).toHaveLength(0);
+  });
+
+  it('leaves no anchor behind and revokes the URL when the click throws', () => {
+    vi.useFakeTimers();
+    const createObjectURL = vi.fn(() => 'blob:blocked');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
+      throw new Error('click blocked');
+    });
+    expect(downloadText('x.json', '{}')).toBe(false);
+    expect(document.querySelectorAll('a[download]')).toHaveLength(0);
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:blocked');
+    vi.advanceTimersByTime(60_000);
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
   });
 });

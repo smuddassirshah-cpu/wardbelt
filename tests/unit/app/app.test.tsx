@@ -7,6 +7,8 @@ import { emptyLoad } from '../../../src/ui/app/boot';
 import { STORAGE_UNAVAILABLE } from '../../../src/ui/app/notices';
 import { createRouter } from '../../../src/ui/app/router';
 import { createSession, LOCK_HELD_MESSAGE } from '../../../src/ui/app/session';
+import { EXPORT_NUDGE_MS, NUDGE_MESSAGE } from '../../../src/ui/app/transfer';
+import { EXPORT_TEXT_LABEL } from '../../../src/ui/Settings';
 import { FIXED_NOW_MS, patientFresh, patientRecovery } from '../../fixtures/synthetic';
 import { fakePlatform, fakeRepo, type FakePlatformOptions } from './helpers';
 
@@ -120,8 +122,10 @@ describe('App', () => {
     const summary = await screen.findByRole('dialog', { name: 'Shift summary' });
     expect(within(summary).getByText(shiftLabel(FIXED_NOW_MS))).toBeTruthy();
     expect(shiftLabel(FIXED_NOW_MS)).toMatch(
-      /^[A-Z][a-z]+day \d{1,2} [A-Z][a-z]+, 04:00 to 04:00$/,
+      /^Shift from 04:00 [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}$/,
     );
+    expect(shiftLabel(new Date(2026, 2, 10, 3, 59).getTime())).toBe('Shift from 04:00 Mon 9 Mar');
+    expect(shiftLabel(new Date(2026, 2, 10, 4, 0).getTime())).toBe('Shift from 04:00 Tue 10 Mar');
     fireEvent.click(within(summary).getByRole('button', { name: 'Close' }));
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
@@ -136,7 +140,10 @@ describe('App', () => {
       expect(document.documentElement.dataset.theme).toBe('dark');
     });
     fireEvent.click(within(settings).getByRole('button', { name: 'Export' }));
-    expect(platform.downloads).toHaveLength(1);
+    await waitFor(() => {
+      expect(platform.downloads).toHaveLength(1);
+    });
+    expect(await screen.findByText('Exported')).toBeTruthy();
     fireEvent.click(within(settings).getByRole('button', { name: 'Delete everything' }));
     fireEvent.click(within(settings).getByRole('button', { name: 'Confirm delete everything' }));
     await waitFor(() => {
@@ -232,6 +239,94 @@ describe('App', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
     expect(screen.getByRole('button', { name: 'Show discharged (1)' })).toBeTruthy();
+  });
+
+  it('shows the weekly export nudge, exports from it, and dismisses it for the session', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientFresh()] };
+    const { platform, session } = await mount({ repo });
+    const nudge = screen.getByText(NUDGE_MESSAGE);
+    const bar = must(nudge.parentElement);
+    fireEvent.click(within(bar).getByRole('button', { name: 'Export' }));
+    await waitFor(() => {
+      expect(screen.queryByText(NUDGE_MESSAGE)).toBeNull();
+    });
+    expect(platform.downloads).toHaveLength(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    await act(() => {
+      platform.clock.set(FIXED_NOW_MS + EXPORT_NUDGE_MS + 1);
+      platform.visible();
+    });
+    expect(session.exportNudge.value).toBe(true);
+    expect(await screen.findByText(NUDGE_MESSAGE)).toBeTruthy();
+    fireEvent.click(
+      within(must(screen.getByText(NUDGE_MESSAGE).parentElement)).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByText(NUDGE_MESSAGE)).toBeNull();
+    });
+  });
+
+  it('opens Settings with the copyable text when the nudge export cannot be saved', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientFresh()] };
+    const { platform } = await mount({ repo });
+    platform.downloadOk = false;
+    fireEvent.click(
+      within(must(screen.getByText(NUDGE_MESSAGE).parentElement)).getByRole('button', {
+        name: 'Export',
+      }),
+    );
+    const settings = await screen.findByRole('dialog', { name: 'Settings' });
+    const area = within(settings).getByLabelText<HTMLTextAreaElement>(EXPORT_TEXT_LABEL);
+    expect(area.readOnly).toBe(true);
+    expect(JSON.parse(area.value)).toMatchObject({ schemaVersion: 1 });
+    expect(screen.getByText(NUDGE_MESSAGE)).toBeTruthy();
+    fireEvent.click(within(settings).getByRole('button', { name: 'Done' }));
+    await waitFor(() => {
+      expect(within(settings).queryByLabelText(EXPORT_TEXT_LABEL)).toBeNull();
+    });
+
+    fireEvent.click(within(settings).getByRole('button', { name: 'Export' }));
+    expect(await within(settings).findByLabelText(EXPORT_TEXT_LABEL)).toBeTruthy();
+    fireEvent.click(within(settings).getByRole('button', { name: 'Close' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', {
+        name: 'Settings',
+      }),
+    );
+    const reopened = await screen.findByRole('dialog', { name: 'Settings' });
+    expect(within(reopened).queryByLabelText(EXPORT_TEXT_LABEL)).toBeNull();
+  });
+
+  it('shows an import rejection inline in Settings and keeps the board unchanged', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientFresh()] };
+    const { session, router } = await mount({ repo });
+    router.navigate({ kind: 'settings' });
+    const settings = await screen.findByRole('dialog', { name: 'Settings' });
+    const input = must(settings.querySelector<HTMLInputElement>('input[type="file"]'));
+    const bad = new File(['{"schemaVersion":2}'], 'bad.json', { type: 'application/json' });
+    Object.defineProperty(input, 'files', { value: [bad], configurable: true });
+    await act(async () => {
+      fireEvent.change(input);
+      await Promise.resolve();
+    });
+    const alert = await within(settings).findByRole('alert');
+    expect(alert.textContent).toBe('Import rejected: Unsupported schema version (expected 1)');
+    expect(Object.keys(session.state.value.patients)).toEqual(['p-fresh']);
+    fireEvent.click(within(settings).getByRole('button', { name: 'Close' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(session.importError.value).toBeUndefined();
+    expect(screen.getByText('Fixture Dog One')).toBeTruthy();
   });
 
   it('ignores a patient route for an unknown id and reopens on hash change', async () => {

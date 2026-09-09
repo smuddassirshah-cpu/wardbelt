@@ -4,7 +4,8 @@
 // the current route and the undo toast. Sheets render normally (not inline) and the patient
 // sheet is keyed by patient id so its uncontrolled inputs never carry over between patients.
 // A read-only tab renders the board and the lock banner only; every mutating route falls back
-// to the board and the session ignores actions anyway.
+// to the board and the session ignores actions anyway. Export from the weekly nudge banner
+// opens Settings when the chain ends in the textarea, since that is where the text renders.
 import { currentTask } from '@domain/patient';
 import { shiftBounds } from '@domain/stats';
 import type { Patient } from '@domain/types';
@@ -19,29 +20,48 @@ import { corruptMessage } from './app/notices';
 import type { Route, Router } from './app/router';
 import { canUndo } from './app/select';
 import type { Session } from './app/session';
+import { NUDGE_MESSAGE } from './app/transfer';
 
 export interface AppProps {
   session: Session;
   router: Router;
 }
 
+/** "Shift from 04:00 Tue 10 Mar": the local start of the shift that contains `nowMs`. */
 export function shiftLabel(nowMs: number): string {
   const { startMs } = shiftBounds(nowMs);
-  const day = new Date(startMs).toLocaleDateString('en-GB', {
-    weekday: 'long',
+  const start = new Date(startMs);
+  const day = start.toLocaleDateString('en-GB', {
+    weekday: 'short',
     day: 'numeric',
-    month: 'long',
+    month: 'short',
   });
-  return `${day}, 04:00 to 04:00`;
+  const hh = String(start.getHours()).padStart(2, '0');
+  return `Shift from ${hh}:00 ${day}`;
 }
 
-function Notices({ session }: { session: Session }) {
+/** Runs the export chain; a textarea outcome is shown in Settings, so open it if needed. */
+function exportFrom(session: Session, router: Router): void {
+  void session.actions.exportData().then((outcome) => {
+    if (outcome === 'textarea' && router.route.peek().kind !== 'settings') {
+      router.navigate({ kind: 'settings' });
+    }
+  });
+}
+
+interface NoticesProps {
+  session: Session;
+  router: Router;
+}
+
+function Notices({ session, router }: NoticesProps) {
   const { banners } = session;
   const storage = banners.storage.value;
   const corrupt = banners.corrupt.value;
   const transient = banners.transient.value;
   const lock = banners.lock.value;
   const updateReady = session.updateReady.value;
+  const nudge = session.exportNudge.value;
   return (
     <div class="app__banners">
       {lock !== undefined && (
@@ -73,6 +93,18 @@ function Notices({ session }: { session: Session }) {
       )}
       {transient !== undefined && (
         <Banner message={transient} tone="warning" onDismiss={session.dismissTransient} />
+      )}
+      {nudge && (
+        <Banner
+          message={NUDGE_MESSAGE}
+          action={{
+            label: 'Export',
+            onClick: () => {
+              exportFrom(session, router);
+            },
+          }}
+          onDismiss={session.dismissNudge}
+        />
       )}
     </div>
   );
@@ -170,14 +202,23 @@ function RouteSheet({ route, session, router }: SheetProps) {
           version={session.version}
           onChange={session.actions.setSettings}
           onRequestNotifications={session.actions.requestNotifications}
-          onExport={session.actions.exportData}
+          onExport={() => {
+            exportFrom(session, router);
+          }}
           onImportText={session.actions.importText}
+          importError={session.importError.value}
+          exportText={session.exportText.value}
+          onDismissExportText={session.dismissTransfer}
           onPurge={session.actions.purgeDischarged}
           onDeleteAll={() => {
             session.actions.reset();
+            session.dismissTransfer();
             router.close();
           }}
-          onClose={router.close}
+          onClose={() => {
+            session.dismissTransfer();
+            router.close();
+          }}
         />
       );
     case 'board':
@@ -207,7 +248,7 @@ export function App({ session, router }: AppProps) {
         ready={ready}
         readOnly={readOnly}
         inert={sheetOpen}
-        notices={<Notices session={session} />}
+        notices={<Notices session={session} router={router} />}
         onCompleteCurrent={session.actions.complete}
         onOpen={(patientId) => {
           router.navigate({ kind: 'patient', id: patientId });

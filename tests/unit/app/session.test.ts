@@ -7,12 +7,14 @@ import { STORAGE_UNAVAILABLE } from '../../../src/ui/app/notices';
 import {
   createSession,
   EXPORT_FAILED,
+  IMPORT_REJECTED,
   LOCK_HELD_MESSAGE,
   LOCK_RELEASED_MESSAGE,
   RAW_EXPORT_FILENAME,
   TRANSIENT_MS,
 } from '../../../src/ui/app/session';
 import { SW_INSTALL_FAILED } from '../../../src/ui/app/sw';
+import { EXPORT_NUDGE_MS } from '../../../src/ui/app/transfer';
 import {
   FIXED_NOW_ISO,
   FIXED_NOW_MS,
@@ -76,13 +78,63 @@ describe('createSession boot', () => {
     session.actions.discharge('p-fresh');
     session.actions.deletePatient('p-fresh');
     session.actions.setSettings({ sound: true });
+    session.actions.purgeDischarged();
     session.actions.reset();
     expect(session.state.value).toBe(before);
     expect(session.toast.value).toBeUndefined();
+    expect(session.exportNudge.value).toBe(false);
     await session.flush();
     expect(repo.calls).toEqual([]);
     platform.released();
     expect(session.banners.lock.value).toBe(LOCK_RELEASED_MESSAGE);
+  });
+
+  it('ignores actions dispatched before hydration so the load cannot overwrite a write', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientFresh()] };
+    const platform = fakePlatform({ repo });
+    const session = createSession(platform);
+    const id = session.actions.addPatient(FORM_DOG);
+    session.actions.setSettings({ sound: true });
+    expect(session.state.value.patients[id]).toBeUndefined();
+    expect(session.state.value.settings.sound).toBe(false);
+    await session.start();
+    expect(Object.keys(session.state.value.patients)).toEqual(['p-fresh']);
+    await session.flush();
+    expect(repo.calls).toEqual([]);
+    session.actions.setSettings({ sound: true });
+    await session.flush();
+    expect(repo.calls).toEqual([{ op: 'saveSettings' }]);
+  });
+
+  it('purges stale discharged patients once at boot through the normal diff path', async () => {
+    const repo = fakeRepo();
+    const stale = { ...patientDischarged(), dischargedAt: isoPlus(FIXED_NOW_ISO, -60 * 24 * 31) };
+    const recent = { ...patientDischarged(), id: 'p-recent' };
+    repo.loadResult = { ...emptyLoad(), patients: [stale, recent, patientFresh()] };
+    const { session } = await booted({ repo });
+    expect(Object.keys(session.state.value.patients).sort()).toEqual(['p-fresh', 'p-recent']);
+    expect(session.toast.value).toBeUndefined();
+    await session.flush();
+    expect(repo.calls).toEqual([{ op: 'deletePatient', id: 'p-discharged' }]);
+  });
+
+  it('respects purgeDays at boot and never purges in a read-only tab', async () => {
+    const repo = fakeRepo();
+    const stale = { ...patientDischarged(), dischargedAt: isoPlus(FIXED_NOW_ISO, -60 * 24 * 31) };
+    repo.loadResult = {
+      ...emptyLoad(),
+      patients: [stale],
+      settings: { ...DEFAULT_SETTINGS, purgeDays: 60 },
+    };
+    const kept = await booted({ repo });
+    expect(Object.keys(kept.session.state.value.patients)).toEqual(['p-discharged']);
+    const other = fakeRepo();
+    other.loadResult = { ...emptyLoad(), patients: [stale] };
+    const readonly = await booted({ repo: other, role: 'readonly' });
+    expect(Object.keys(readonly.session.state.value.patients)).toEqual(['p-discharged']);
+    await readonly.session.flush();
+    expect(other.calls).toEqual([]);
   });
 
   it('falls back to memory mode with the storage banner when the open stalls', async () => {
@@ -270,10 +322,10 @@ describe('settings, transfer and scheduler wiring', () => {
     expect(repo.calls).toEqual([{ op: 'saveSettings' }, { op: 'saveSettings' }]);
   });
 
-  it('exports through the platform download and records the export time', async () => {
+  it('exports through the download when the browser cannot share, and records the time', async () => {
     const { platform, session } = await booted();
     const id = session.actions.addPatient(FORM_DOG);
-    session.actions.exportData();
+    await expect(session.actions.exportData()).resolves.toBe('downloaded');
     const s = session.state.value;
     const expected = serialiseExport(
       buildExport(Object.values(s.patients), s.events, { ...DEFAULT_SETTINGS }, FIXED_NOW_ISO),
@@ -283,40 +335,133 @@ describe('settings, transfer and scheduler wiring', () => {
     expect(s.settings.lastExportAt).toBe(FIXED_NOW_ISO);
     expect(s.patients[id]).toBeDefined();
     expect(session.toast.value?.message).toBe('Exported');
+    expect(session.exportText.value).toBeUndefined();
+  });
+
+  it('prefers the Share API and treats a dismissed share sheet as no export', async () => {
+    const share = vi.fn(() => Promise.resolve());
+    const { platform, session } = await booted({ share: { canShare: () => true, share } });
+    session.actions.addPatient(FORM_DOG);
+    await expect(session.actions.exportData()).resolves.toBe('shared');
+    expect(share).toHaveBeenCalledTimes(1);
+    expect(platform.downloads).toEqual([]);
+    expect(session.state.value.settings.lastExportAt).toBe(FIXED_NOW_ISO);
+    expect(session.toast.value?.message).toBe('Exported');
+
+    session.dismissToast();
+    platform.clock.set(FIXED_NOW_MS + 60_000);
+    const abort = new Error('dismissed');
+    abort.name = 'AbortError';
+    share.mockImplementationOnce(() => Promise.reject(abort));
+    await expect(session.actions.exportData()).resolves.toBe('cancelled');
+    expect(session.state.value.settings.lastExportAt).toBe(FIXED_NOW_ISO);
+    expect(session.toast.value).toBeUndefined();
+    expect(platform.downloads).toEqual([]);
+  });
+
+  it('falls back to the copyable textarea when share and download both fail', async () => {
+    const { platform, session } = await booted();
+    session.actions.addPatient(FORM_DOG);
     platform.downloadOk = false;
-    session.actions.exportData();
-    expect(session.banners.transient.value).toBe(EXPORT_FAILED);
+    await expect(session.actions.exportData()).resolves.toBe('textarea');
+    expect(session.exportText.value).toBe(platform.downloads[0]?.text);
+    expect(JSON.parse(session.exportText.value ?? '')).toMatchObject({ schemaVersion: 1 });
+    expect(session.state.value.settings.lastExportAt).toBeUndefined();
+    expect(session.toast.value).toBeUndefined();
+    expect(session.banners.transient.value).toBeUndefined();
+    session.dismissTransfer();
+    expect(session.exportText.value).toBeUndefined();
+  });
+
+  it('nudges weekly once there is a patient, until exported or dismissed for the session', async () => {
+    const { platform, session } = await booted();
+    expect(session.exportNudge.value).toBe(false);
+    session.actions.addPatient(FORM_DOG);
+    expect(session.exportNudge.value).toBe(true);
+    await session.actions.exportData();
+    expect(session.exportNudge.value).toBe(false);
+    platform.clock.set(FIXED_NOW_MS + EXPORT_NUDGE_MS);
+    platform.visible();
+    expect(session.exportNudge.value).toBe(false);
+    platform.clock.set(FIXED_NOW_MS + EXPORT_NUDGE_MS + 1);
+    platform.visible();
+    expect(session.exportNudge.value).toBe(true);
+    session.dismissNudge();
+    expect(session.exportNudge.value).toBe(false);
   });
 
   it('imports a valid file and rejects an invalid one whole', async () => {
     const { platform, session } = await booted();
     session.actions.addPatient(FORM_DOG);
-    session.actions.exportData();
+    await session.actions.exportData();
     const text = platform.downloads[0]?.text ?? '';
     session.actions.reset();
     expect(session.state.value.patients).toEqual({});
+    session.actions.importText('not json');
+    expect(session.importError.value).toBe(`${IMPORT_REJECTED}: File is not valid JSON`);
+    expect(session.state.value.patients).toEqual({});
     session.actions.importText(text);
     expect(Object.keys(session.state.value.patients)).toHaveLength(1);
-    expect(session.toast.value?.message).toBe('Imported 1 patients');
-    session.actions.importText('not json');
-    expect(session.banners.transient.value).toBe('Import rejected: File is not valid JSON');
+    expect(session.toast.value?.message).toBe('Imported 1 patient');
+    expect(session.importError.value).toBeUndefined();
+    expect(session.banners.transient.value).toBeUndefined();
+    const before = session.state.value;
     const broken = JSON.parse(text) as { patients: { name: unknown }[] };
     broken.patients[0] = { ...broken.patients[0], name: '' };
     session.actions.importText(JSON.stringify(broken));
-    expect(session.banners.transient.value).toMatch(/^Import rejected: .*\(1 invalid records\)$/);
+    expect(session.importError.value).toBe(`${IMPORT_REJECTED}: 1 record failed validation`);
+    expect(session.state.value).toBe(before);
+    session.dismissTransfer();
+    expect(session.importError.value).toBeUndefined();
+    session.actions.importText(text);
+    expect(session.toast.value?.message).toBe('Imported 1 patient');
   });
 
   it('purges stale discharged patients and resets everything', async () => {
     const repo = fakeRepo();
     const stale = { ...patientDischarged(), dischargedAt: isoPlus(FIXED_NOW_ISO, -60 * 24 * 40) };
     repo.loadResult = { ...emptyLoad(), patients: [stale, patientFresh()] };
-    const { session } = await booted({ repo });
+    const { session } = await booted({ repo, startMs: FIXED_NOW_MS - 20 * 24 * 60 * 60_000 });
+    expect(Object.keys(session.state.value.patients).sort()).toEqual(['p-discharged', 'p-fresh']);
+    session.actions.purgeDischarged();
+    expect(session.toast.value?.message).toBe('Nothing to purge');
+    session.actions.setSettings({ purgeDays: 1 });
     session.actions.purgeDischarged();
     expect(Object.keys(session.state.value.patients)).toEqual(['p-fresh']);
+    expect(session.toast.value?.message).toBe('Purged 1 discharged patient');
     session.actions.reset();
     expect(session.state.value.patients).toEqual({});
     await session.flush();
-    expect(repo.calls.map((c) => c.op)).toEqual(['deletePatient', 'clearAll']);
+    expect(repo.calls.map((c) => c.op)).toEqual(['saveSettings', 'deletePatient', 'clearAll']);
+  });
+
+  it('reports nothing to purge once the wall clock has moved since the last action', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientDischarged(), patientFresh()] };
+    const { platform, session } = await booted({ repo });
+    platform.clock.advance(1);
+    session.actions.purgeDischarged();
+    expect(session.toast.value?.message).toBe('Nothing to purge');
+    platform.clock.advance(60_000);
+    session.actions.purgeDischarged();
+    expect(session.toast.value?.message).toBe('Nothing to purge');
+    expect(Object.keys(session.state.value.patients).sort()).toEqual(['p-discharged', 'p-fresh']);
+    await session.flush();
+    expect(repo.calls).toEqual([]);
+  });
+
+  it('keeps the undo toast when the clock moved but there was nothing to undo', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientFresh()] };
+    const { platform, session } = await booted({ repo });
+    session.actions.complete('p-fresh', templateTaskId('p-fresh', 'handover_admit'));
+    const shown = session.toast.value;
+    expect(shown?.undoPatientId).toBe('p-fresh');
+    platform.clock.advance(1);
+    session.actions.undo('p-missing');
+    expect(session.toast.value).toBe(shown);
+    session.actions.undo('p-fresh');
+    expect(session.toast.value).toBeUndefined();
   });
 
   it('shows a notification for due checks only when the setting is on and permission granted', async () => {

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/preact';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  EXPORT_TEXT_LABEL,
   NOTIFICATION_HINT,
   STORAGE_LINE,
   Settings,
@@ -179,6 +180,29 @@ describe('Settings', () => {
     await waitFor(() => {
       expect(onImportText).toHaveBeenCalledWith('legacy');
     });
+  });
+
+  it('pluralises the purge button correctly for one day', () => {
+    mount({ settings: { ...FIXTURE_SETTINGS, purgeDays: 1 } });
+    expect(screen.getByRole('button', { name: 'Purge discharged older than 1 day' })).toBeTruthy();
+  });
+
+  it('shows the import rejection passed in by the caller', () => {
+    mount({ importError: 'Import rejected: File is not valid JSON' });
+    expect(screen.getByRole('alert').textContent).toBe('Import rejected: File is not valid JSON');
+  });
+
+  it('shows the export text in a read-only textarea that selects on focus, with Done', () => {
+    const onDismissExportText = vi.fn();
+    mount({ exportText: '{"schemaVersion":1}', onDismissExportText });
+    const area = screen.getByLabelText<HTMLTextAreaElement>(EXPORT_TEXT_LABEL);
+    expect(area.readOnly).toBe(true);
+    expect(area.value).toBe('{"schemaVersion":1}');
+    const select = vi.spyOn(area, 'select');
+    fireEvent.focus(area);
+    expect(select).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onDismissExportText).toHaveBeenCalledTimes(1);
   });
 
   it('shows the last export time when known', () => {

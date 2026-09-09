@@ -10,6 +10,7 @@ import { emptyLoad } from '../../../src/ui/app/boot';
 import type { TabLock } from '../../../src/ui/app/lock';
 import type { Platform } from '../../../src/ui/app/session';
 import type { RegisterSwOptions } from '../../../src/ui/app/sw';
+import type { ShareApi } from '../../../src/ui/app/transfer';
 import { FIXED_NOW_MS } from '../../fixtures/synthetic';
 import { vi } from 'vitest';
 
@@ -113,6 +114,8 @@ export interface FakePlatformOptions {
   notifyDeps?: NotifyDeps;
   bootTimeoutMs?: number;
   startMs?: number;
+  /** Web Share surface; defaults to none so no test touches the jsdom navigator. */
+  share?: ShareApi;
 }
 
 export interface FakePlatform extends Platform {
@@ -162,6 +165,7 @@ export function fakePlatform(options: FakePlatformOptions = {}): FakePlatform {
       platform.downloads.push({ filename, text });
       return platform.downloadOk;
     },
+    share: options.share ?? {},
     reducedMotion: () => true,
     version: 'test',
   };
