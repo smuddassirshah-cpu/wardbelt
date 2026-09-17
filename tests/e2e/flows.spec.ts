@@ -42,7 +42,7 @@ test('adds a patient from the board in at most 8 taps', async ({ page }) => {
   );
   await expect(added.locator('.belt__square')).toHaveCount(18);
   await expect(added.locator('.belt__square svg[data-icon="handover_admit"]')).toHaveCount(1);
-  await expect(added.locator('.row__title .chip')).toHaveText('Status Waiting');
+  await expect(added.locator('.row__meta > .chip')).toHaveText('Status Waiting');
   await expect(added.getByText('10:00')).toBeVisible();
 });
 
@@ -73,7 +73,7 @@ test('the four checks are scheduled by the handover, not by in theatre', async (
   await completeThroughTheatre(page, 'Fixture Gamma');
   const target = row(page, 'Fixture Gamma');
   await expect(target.locator('.chip--warning')).toHaveCount(0);
-  await expect(target.locator('.row__title .chip')).toHaveText('Status In theatre');
+  await expect(target.locator('.row__meta > .chip')).toHaveText('Status In theatre');
   const waiting = await openSheet(page, 'Fixture Gamma');
   await expect(waiting.getByLabel('Back from theatre at')).toHaveValue('');
   for (let i = 1; i <= 4; i += 1) {
@@ -85,8 +85,10 @@ test('the four checks are scheduled by the handover, not by in theatre', async (
 
   await page.clock.fastForward(5 * 60_000);
   await completeCurrent(target, 'Handover from theatre');
-  await expect(target.locator('.chip--warning')).toHaveText(/Post-op check 1\sin 15:00/);
-  await expect(target.locator('.row__title .chip')).toHaveText('Status Recovery');
+  await expect(target.locator('.chip--warning')).toHaveText(/\sin 15:00$/);
+  await expect(target.locator('.chip--warning .visually-hidden')).toHaveText('Post-op check 1');
+  await expect(target.locator('.chip--warning svg[data-icon="check_1"]')).toHaveCount(1);
+  await expect(target.locator('.row__meta > .chip')).toHaveText('Status Recovery');
 
   const sheet = await openSheet(page, 'Fixture Gamma');
   const returned = await sheet.getByLabel('Back from theatre at').inputValue();
@@ -110,7 +112,9 @@ test('an overdue check moves the row to the top under a fake clock', async ({ pa
 
   await page.clock.fastForward(16 * 60_000);
   const late = row(page, 'Fixture Epsilon');
-  await expect(late.locator('.chip--danger')).toHaveText(/Post-op check 1\soverdue 01:0\d/);
+  await expect(late.locator('.chip--danger')).toHaveText(/\soverdue 01:0\d$/);
+  await expect(late.locator('.chip--danger .visually-hidden')).toHaveText('Post-op check 1');
+  await expect(late.locator('.chip--danger svg[data-icon="check_1"]')).toHaveCount(1);
   await expect(late).toHaveAttribute('data-urgency', 'overdue');
   await expect(late.locator('.belt__square--overdue')).toHaveCount(1);
   await expect(page.locator('.row__name')).toHaveText(['Fixture Epsilon', 'Fixture Delta']);
@@ -212,7 +216,7 @@ test('books a collection time, clears it, rebooks it and then discharges', async
   const discharged = row(page, 'Fixture Sigma');
   await expect(discharged).toBeVisible();
   await expect(discharged.locator('.row__side .chip')).toHaveCount(0);
-  await expect(discharged.locator('.row__title .chip')).toHaveCount(0);
+  await expect(discharged.locator('.row__meta > .chip')).toHaveCount(0);
 });
 
 test('discharging moves the row under Show discharged', async ({ page }) => {

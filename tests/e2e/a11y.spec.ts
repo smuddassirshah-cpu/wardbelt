@@ -104,11 +104,12 @@ async function boardWithData(page: Page, theme: string, info: TestInfo): Promise
   await completeThroughHandover(page, 'Fixture Xi');
   await page.clock.fastForward(16 * 60_000);
   const late = row(page, 'Fixture Xi');
-  await expect(late.locator('.chip--danger')).toHaveText(/Post-op check 1\soverdue/);
+  await expect(late.locator('.chip--danger')).toHaveText(/\soverdue/);
+  await expect(late.locator('.chip--danger .visually-hidden')).toHaveText('Post-op check 1');
   await expect(late.locator('.belt__square--overdue')).toHaveCount(1);
   await expect(row(page, 'Fixture Nu').getByText('10:00')).toBeVisible();
   await expect(late.locator('.belt__square svg[data-icon]')).toHaveCount(18);
-  await expect(late.locator('.row__title .chip')).toHaveText('Status Recovery');
+  await expect(late.locator('.row__meta > .chip')).toHaveText('Status Recovery');
 
   const board = await audit(page, 'board with an intake chip and an overdue check');
   expect(board.result.violationIds).toEqual([]);

@@ -51,7 +51,9 @@ function chipText(session: Session): string {
     />,
   );
   const chip = document.querySelector('.chip--danger, .chip--warning');
-  return (chip?.textContent ?? '').replace(/\u00a0/g, ' ');
+  const label = chip?.querySelector('.visually-hidden')?.textContent ?? '';
+  const countdown = chip?.lastElementChild?.textContent ?? '';
+  return `${label}${countdown}`.replace(/\u00a0/g, ' ');
 }
 
 afterEach(() => {

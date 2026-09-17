@@ -268,7 +268,7 @@ describe('App', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
     expect(screen.getByText('Home 15:30')).toBeTruthy();
-    expect(must(document.querySelector('.row__title .chip')).textContent).toBe('Status Waiting');
+    expect(must(document.querySelector('.row__meta .chip')).textContent).toBe('Status Waiting');
   });
 
   it('shows the weekly export nudge, exports from it, and dismisses it for the session', async () => {

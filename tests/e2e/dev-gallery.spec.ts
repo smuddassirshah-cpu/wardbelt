@@ -116,26 +116,65 @@ test('patient rows are 88 px collapsed', async ({ page }) => {
   }
 });
 
-// The space between a timer chip's label and its countdown is non-breaking, so that it survives
-// the label and the countdown being separate flex items; \s and a normalised innerText match it.
-test('timer chips keep the space between the label and the countdown', async ({ page }) => {
+// A timer chip shows the step's glyph and the countdown, and carries the task's full name for
+// screen readers only. The space before the countdown is non-breaking, because an ordinary one at
+// the start of a flex item collapses away and the chip would read "check 2in 04:30".
+test('timer chips show the step glyph, the countdown and a spoken task name', async ({ page }) => {
   await openGallery(page);
-  await expect(page.locator('#rows .chip--danger').first()).toHaveText(
-    /Post-op check 1\soverdue 05:00/,
-  );
-  await expect(page.locator('#rows .chip--warning').first()).toHaveText(/Bandage check\sin 25:00/);
+  const overdue = page.locator('#rows .chip--danger').first();
+  const soon = page.locator('#rows .chip--warning').first();
+  await expect(overdue.locator('.visually-hidden')).toHaveText('Post-op check 1');
+  await expect(overdue.locator('svg[data-icon="check_1"]')).toHaveCount(1);
+  await expect(soon.locator('.visually-hidden')).toHaveText('Bandage check');
+  await expect(soon.locator('.chip__glyph')).toHaveText('BA');
   const rendered = await page.evaluate(() =>
     Array.from(
       document.querySelectorAll<HTMLElement>('#rows .chip--danger, #rows .chip--warning'),
     ).map((el) => ({
-      text: el.textContent,
+      countdown: el.lastElementChild?.textContent,
       visible: el.innerText.replace(/\s+/g, ' '),
     })),
   );
-  expect(rendered[0]?.text).toContain('Post-op check 1\u00a0overdue 05:00');
-  expect(rendered[0]?.visible).toContain('Post-op check 1 overdue 05:00');
-  expect(rendered[1]?.text).toContain('Bandage check\u00a0in 25:00');
-  expect(rendered[1]?.visible).toContain('Bandage check in 25:00');
+  expect(rendered[0]?.countdown).toBe('\u00a0overdue 05:00');
+  expect(rendered[0]?.visible).toContain('1 overdue 05:00');
+  expect(rendered[1]?.countdown).toBe('\u00a0in 25:00');
+  expect(rendered[1]?.visible).toContain('BA in 25:00');
+});
+
+// Regression guard for the row that has everything on it at once: a long name, a ward status
+// chip, an intake chip, a booked collection and an overdue check. Nothing but the procedure may
+// be cut short, no chip is squeezed below its content, and the row stays 88 px.
+test('a full row at 393 px keeps the name and every chip whole', async ({ page }) => {
+  await openGallery(page);
+  const row = page.locator('#rows .row').nth(3);
+  await expect(row.locator('.row__name')).toHaveText('Fixture Dog One');
+  const measured = await row.evaluate((el) => {
+    const fit = (node: Element | null) =>
+      node === null ? null : { scroll: node.scrollWidth, client: node.clientWidth };
+    return {
+      viewport: document.documentElement.clientWidth,
+      height: el.getBoundingClientRect().height,
+      headerHeight: el.querySelector('.row__header')?.getBoundingClientRect().height,
+      name: fit(el.querySelector('.row__name')),
+      chips: Array.from(el.querySelectorAll('.chip')).map((c) => ({
+        text: c.textContent.slice(0, 24),
+        scroll: c.scrollWidth,
+        client: c.clientWidth,
+      })),
+      sideChips: el.querySelectorAll('.row__side .chip').length,
+      status: el.querySelector('.row__meta > .chip')?.textContent,
+    };
+  });
+  expect(measured.viewport).toBe(393);
+  expect(measured.height).toBe(88);
+  expect(measured.headerHeight).toBe(48);
+  expect(measured.status).toBe('Status Recovery');
+  expect(measured.sideChips).toBe(2);
+  expect(measured.chips).toHaveLength(4);
+  expect(measured.name?.scroll).toBeLessThanOrEqual(measured.name?.client ?? 0);
+  for (const chip of measured.chips) {
+    expect(chip.scroll, chip.text).toBeLessThanOrEqual(chip.client);
+  }
 });
 
 test('every template cell carries its icon and custom cells keep their letters', async ({

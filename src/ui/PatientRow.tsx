@@ -1,17 +1,20 @@
 // Decision notes: the row is 88 px collapsed: 8 px padding, a 48 px header button, a 24 px
 // belt, 7 px padding and the 1 px hairline, with the 2 px progress bar on the bottom edge.
-// Urgency and the next due task are props; the row only formats them. The ward status chip sits
-// on the title line, where the fixed 48 px header height keeps it from growing the row. The
-// side column is capped at two lines for the same reason, so the intake chip and the booked
-// collection chip share the second line rather than stacking to 68 px. The timer chip names the
-// task in full (CHANGES-2026-09.md section 5); its label and its countdown are separate spans, so
-// a narrow screen cuts the label short rather than the countdown or the patient's name. The
-// countdown starts with a non-breaking space, because an ordinary leading space at the start of a
-// flex item is collapsed away and the chip would read "check 2in 04:30".
+// Urgency and the next due task are props; the row only formats them. The header is two
+// independent lines rather than a text column beside a chip column, so each line spends its own
+// width: the name shares the first line with the countdown chip only, and the species, the ward
+// status chip, the procedure, the intake chip and the booked collection chip share the second.
+// The patient's name is the only text in the header allowed to be cut short, and only after the
+// procedure has given way (CHANGES-2026-09.md section 5). The timer chip carries the step's icon
+// and the countdown: the full label is there for screen readers only, because spelled out it
+// fitted neither the chip nor the name at 393 px. The countdown starts with a non-breaking
+// space, because an ordinary leading space at the start of a flex item is collapsed away and the
+// chip would read "check 2in 04:30".
 import { wardStatus, type WardStatus } from '@domain/status';
 import { type Iso, type Patient } from '@domain/types';
 import { Belt } from './Belt';
 import { Chip } from './Chip';
+import { TaskGlyph } from './icons';
 import { SPECIES_LABEL, classes, formatClock, formatCountdown, progressOf } from './format';
 
 export type Urgency = 'overdue' | 'due_soon' | 'intake' | 'none';
@@ -81,7 +84,10 @@ function TimerChip({
   const overdue = remaining <= 0;
   return (
     <Chip tone={overdue ? 'danger' : 'warning'} mono>
-      <span class="chip__label">{task.label}</span>
+      <span class="visually-hidden">{task.label}</span>
+      <span class="chip__glyph" aria-hidden="true">
+        <TaskGlyph task={task} />
+      </span>
       <span>{`\u00a0${overdue ? 'overdue' : 'in'} ${formatCountdown(remaining)}`}</span>
     </Chip>
   );
@@ -104,19 +110,17 @@ export function PatientRow({
   return (
     <article class="row" data-urgency={urgency}>
       <button type="button" class="row__header" disabled={readOnly} onClick={onOpen}>
-        <span class="row__main">
-          <span class="row__title">
-            <span class="row__name">{patient.name}</span>
-            <span class="row__species">{SPECIES_LABEL[patient.species]}</span>
-            <StatusChip patient={patient} />
-            {patient.kennel !== '' && <span class="row__kennel">{patient.kennel}</span>}
-          </span>
-          <span class="row__procedure">{patient.procedure}</span>
-        </span>
-        <span class="row__side">
+        <span class="row__title">
+          <span class="row__name">{patient.name}</span>
+          {patient.kennel !== '' && <span class="row__kennel">{patient.kennel}</span>}
           <TimerChip patient={patient} nextDue={nextDue} now={now} />
+        </span>
+        <span class="row__meta">
+          <span class="row__species">{SPECIES_LABEL[patient.species]}</span>
+          <StatusChip patient={patient} />
+          <span class="row__procedure">{patient.procedure}</span>
           {(intake || booked) && (
-            <span class="row__side-line">
+            <span class="row__side">
               {intake && (
                 <Chip tone={urgency === 'intake' ? 'accent' : 'neutral'} mono>
                   <span class="visually-hidden">{'Intake '}</span>

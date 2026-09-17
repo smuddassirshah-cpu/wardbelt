@@ -51,7 +51,8 @@ test('a scripted shift produces the expected stats, then resets after 04:00', as
   await addPatient(page, C, 'Lump removal', { intake: '10:00' });
 
   await completeThroughHandover(page, A);
-  await expect(row(page, A).locator('.chip--warning')).toHaveText(/Post-op check 1\sin 15:00/);
+  await expect(row(page, A).locator('.chip--warning')).toHaveText(/\sin 15:00$/);
+  await expect(row(page, A).locator('.chip--warning svg[data-icon="check_1"]')).toHaveCount(1);
 
   await page.clock.fastForward(14 * MINUTE);
   await completeCurrent(row(page, A), 'Post-op check 1');
@@ -60,9 +61,8 @@ test('a scripted shift produces the expected stats, then resets after 04:00', as
   await completeCurrent(row(page, A), 'Post-op check 2');
 
   await page.clock.fastForward(18 * MINUTE);
-  await expect(row(page, A).locator('.chip--danger')).toHaveText(
-    /Post-op check 3\soverdue 04:\d\d/,
-  );
+  await expect(row(page, A).locator('.chip--danger')).toHaveText(/\soverdue 04:\d\d$/);
+  await expect(row(page, A).locator('.chip--danger svg[data-icon="check_3"]')).toHaveCount(1);
   await completeCurrent(row(page, A), 'Post-op check 3');
 
   await page.clock.fastForward(11 * MINUTE);

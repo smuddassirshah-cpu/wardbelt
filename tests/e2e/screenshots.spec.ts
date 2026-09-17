@@ -76,10 +76,11 @@ async function seedBoard(page: Page): Promise<void> {
   const late = row(page, 'Fixture Dog One');
   await completeCurrent(late, 'Handover from theatre');
   await completeCurrent(late, 'Post-op check 1');
-  await expect(late.locator('.chip--warning')).toHaveText(/Post-op check 2\sin/);
+  await expect(late.locator('.chip--warning')).toHaveText(/\sin \d\d:\d\d$/);
 
   await page.clock.fastForward(31 * 60_000);
-  await expect(late.locator('.chip--danger')).toHaveText(/Post-op check 2\soverdue/);
+  await expect(late.locator('.chip--danger')).toHaveText(/\soverdue/);
+  await expect(late.locator('.chip--danger svg[data-icon="check_2"]')).toHaveCount(1);
   await expect(late).toHaveAttribute('data-urgency', 'overdue');
   await expect(page.locator('.row__name').first()).toHaveText('Fixture Dog One');
   await expect(page.getByRole('status').filter({ hasText: /completed|skipped/ })).toHaveCount(0);
@@ -141,8 +142,6 @@ test('README screenshots: board, sheets, summary, settings and dark board', asyn
 
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect.poll(() => bodyBackground(page)).toBe(DARK_BG);
-  await expect(row(page, 'Fixture Dog One').locator('.chip--danger')).toHaveText(
-    /Post-op check 2\soverdue/,
-  );
+  await expect(row(page, 'Fixture Dog One').locator('.chip--danger')).toHaveText(/\soverdue/);
   await capture(page, info, 'board-dark');
 });

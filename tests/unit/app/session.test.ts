@@ -630,6 +630,31 @@ describe('alerts and the wake lock', () => {
     expect(release).toHaveBeenCalledTimes(2);
   });
 
+  it('stops itself when the page is hidden for good', async () => {
+    const release = vi.fn(() => Promise.resolve());
+    const request = vi.fn(() => Promise.resolve({ release, addEventListener: vi.fn() }));
+    vi.stubGlobal('navigator', { wakeLock: { request } });
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientRecovery()] };
+    let pageHide: (() => void) | undefined;
+    const platform = fakePlatform({ repo });
+    platform.onPageHide = (fn) => {
+      pageHide = fn;
+    };
+    const session = createSession(platform);
+    await session.start();
+    session.actions.setSettings({ keepScreenOn: true });
+    await flushMicrotasks();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(platform.clock.pending()).toBe(1);
+    expect(pageHide).toBeDefined();
+    pageHide?.();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(platform.clock.pending()).toBe(0);
+    session.stop();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
   it('stops the scheduler and the effects on stop', async () => {
     const repo = fakeRepo();
     repo.loadResult = { ...emptyLoad(), patients: [patientRecovery()] };

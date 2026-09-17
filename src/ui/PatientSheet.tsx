@@ -8,16 +8,10 @@
 // on a discharged one. A booking is a local HH:MM on today's date turned into a UTC ISO stamp
 // (CHANGES-2026-09.md section 5); it does not discharge anyone, so the Discharge button below it
 // is untouched. Delete is an inline two-step confirm, never window.confirm.
-import {
-  NOTES_MAX,
-  validateCustomTask,
-  validatePatientForm,
-  parseIso,
-  type CustomTaskInput,
-} from '@domain/validate';
+import { NOTES_MAX, validateCustomTask, parseIso, type CustomTaskInput } from '@domain/validate';
 import { type Intake, type Iso, type Patient, type Task } from '@domain/types';
 import { useId, useRef, useState } from 'preact/hooks';
-import { IntakeField, intakeValue } from './AddPatientSheet';
+import { IntakeField, intakeError, readIntake } from './AddPatientSheet';
 import { ConfirmButton } from './ConfirmButton';
 import { Sheet } from './Sheet';
 import { TaskGlyph } from './icons';
@@ -73,12 +67,6 @@ function bookingIso(raw: string | undefined, now: number): Iso | undefined {
   const at = new Date(now);
   at.setHours(Number(hh), Number(mm), 0, 0);
   return at.toISOString();
-}
-
-/** The validator owns the intake rule and its wording; only its intake message is read here. */
-function intakeError(value: Intake): string | undefined {
-  const result = validatePatientForm({ intake: value });
-  return result.ok ? undefined : result.errors.intake;
 }
 
 function useCommit(initial: string, save: (value: string) => void) {
@@ -353,10 +341,10 @@ export function PatientSheet(props: PatientSheetProps) {
   };
 
   const saveIntake = () => {
-    const value = intakeValue(intakeInput.current?.value);
-    const message = intakeError(value);
+    const value = readIntake(intakeInput.current);
+    const message = intakeError(value ?? '');
     setIntakeMessage(message);
-    if (message === undefined) {
+    if (value !== undefined && message === undefined) {
       onSetIntake(value);
     }
   };

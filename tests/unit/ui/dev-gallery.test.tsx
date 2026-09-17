@@ -39,9 +39,9 @@ describe('DevGallery', () => {
     expect(container.querySelectorAll('.belt__square--overdue').length).toBeGreaterThan(0);
     expect(container.querySelectorAll('.belt__square--skipped').length).toBeGreaterThan(0);
     expect(container.querySelectorAll('#belt .belt__square svg[data-icon]').length).toBe(7 * 18);
-    expect(container.querySelectorAll('#rows .row__title .chip').length).toBe(6);
-    const homeChips = Array.from(container.querySelectorAll('#rows .row__side-line .chip')).filter(
-      (c) => c.textContent.startsWith('Home'),
+    expect(container.querySelectorAll('#rows .row__meta > .chip').length).toBe(6);
+    const homeChips = Array.from(container.querySelectorAll('#rows .row__side .chip')).filter((c) =>
+      c.textContent.startsWith('Home'),
     );
     expect(homeChips).toHaveLength(2);
     expect(homeChips.filter((c) => c.classList.contains('chip--warning'))).toHaveLength(1);
@@ -72,7 +72,7 @@ describe('DevGallery', () => {
       Array.from(container.querySelectorAll('#sheet .summary-line')).filter((p) =>
         p.textContent.startsWith('Booked for'),
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 
   it('switches the theme on the document element', () => {

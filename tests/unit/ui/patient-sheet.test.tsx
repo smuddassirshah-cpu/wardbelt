@@ -257,6 +257,24 @@ describe('PatientSheet', () => {
     expect(intake.getAttribute('aria-invalid')).toBe('true');
   });
 
+  it('refuses a half-typed intake instead of silently clearing it', () => {
+    const p = patientRecovery();
+    const { onSetIntake } = mount(p);
+    const intake = screen.getByLabelText<HTMLInputElement>(/^Intake time/);
+    // A time input sanitises a partial entry ("09:" say) to '', and only validity.badInput tells
+    // that apart from a box the nurse cleared on purpose.
+    Object.defineProperty(intake, 'validity', { value: { badInput: true }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Save intake' }));
+    expect(onSetIntake).not.toHaveBeenCalled();
+    expect(screen.getByText('Enter a time as HH:MM, or none')).toBeTruthy();
+    expect(intake.getAttribute('aria-invalid')).toBe('true');
+
+    Object.defineProperty(intake, 'validity', { value: { badInput: false }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'No set time' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save intake' }));
+    expect(onSetIntake).toHaveBeenCalledWith('none');
+  });
+
   it('does not offer the intake edit on a discharged patient', () => {
     mount(patientDischarged(), { currentTaskId: undefined });
     expect(screen.queryByLabelText(/^Intake time/)).toBeNull();

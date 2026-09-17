@@ -268,10 +268,9 @@ fieldset.field legend {
 .chip {
   display: inline-flex;
   align-items: center;
-  min-width: 0;
+  flex: none;
   height: var(--chip-height);
   padding: 0 var(--space-2);
-  overflow: hidden;
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
   line-height: 1;
@@ -280,13 +279,11 @@ fieldset.field legend {
   border: var(--hairline) solid var(--colour-hairline);
 }
 
-/* The only part of a chip that may be cut short: the countdown beside it always stays whole. */
-.chip__label {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  font-family: var(--font-sans);
-  text-overflow: ellipsis;
+/* The timer chip's step icon, beside the countdown. */
+.chip__glyph {
+  display: flex;
+  flex: none;
+  align-items: center;
 }
 
 .chip--accent {
@@ -442,8 +439,9 @@ fieldset.field legend {
   position: relative;
   z-index: 1;
   display: flex;
-  gap: var(--space-2);
-  align-items: center;
+  flex-direction: column;
+  gap: var(--space-1);
+  justify-content: center;
   width: 100%;
   height: var(--target);
   padding: 0;
@@ -455,22 +453,31 @@ fieldset.field legend {
   -webkit-tap-highlight-color: transparent;
 }
 
-.row__main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.row__title {
+/* Two independent lines, each spending its own width: the name and the countdown on the first,
+   everything else on the second. Both are 20 px, so the header stays 48 px and the row 88 px. */
+.row__title,
+.row__meta {
   display: flex;
   gap: var(--space-2);
-  align-items: baseline;
+  align-items: center;
+  width: 100%;
   min-width: 0;
+  height: var(--chip-height);
   line-height: 1.3;
 }
 
-.row__title .chip {
+/* Chips keep their content width; the name and the procedure are the only text that gives way.
+   The countdown and the intake and collection chips sit at the end of their line; the ward
+   status chip stays beside the species, where the eye looks for it. */
+.row__title > .chip,
+.row__meta > .chip,
+.row__side {
   flex: none;
-  align-self: center;
+}
+
+.row__title > .chip,
+.row__side {
+  margin-left: auto;
 }
 
 .row__name {
@@ -490,12 +497,15 @@ fieldset.field legend {
 }
 
 .row__kennel {
+  flex: none;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
 .row__procedure {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   font-size: var(--text-sm);
   line-height: 1.3;
@@ -504,37 +514,11 @@ fieldset.field legend {
   white-space: nowrap;
 }
 
+/* Intake and the booked collection time, at the end of the second line. */
 .row__side {
   display: flex;
-  flex: 0 1 auto;
-
-  /* Never narrower than the chips need: the timer chip's label is the only part that gives way. */
-  min-width: min-content;
-  flex-direction: column;
   gap: var(--space-1);
-  align-items: flex-end;
-}
-
-/* A column flex item is sized to its content, so the chips are capped at the column's width;
-   without this a long timer chip would overflow left across the patient's name. On a handset
-   the timer chip is capped tighter still: a full task label and a countdown together do not fit
-   beside the name, the species and the status chip, and the label is the part that gives way. */
-.row__side > * {
-  max-width: 100%;
-}
-
-@media (width <= 430px) {
-  .row__side > .chip {
-    max-width: 22ch;
-  }
-}
-
-/* Second line of the side column: intake and booked collection sit together so the column
-   never grows past two chips inside the 48 px header. */
-.row__side-line {
-  display: flex;
-  gap: var(--space-1);
-  justify-content: flex-end;
+  align-items: center;
 }
 
 .row__belt {

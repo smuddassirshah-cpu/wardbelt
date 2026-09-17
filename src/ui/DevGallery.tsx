@@ -72,8 +72,8 @@ function variants(): Variant[] {
       nextDue: undefined,
     },
     {
-      title: 'Recovery with an overdue check',
-      patient: patientRecovery(),
+      title: 'Recovery with an overdue check, intake and a booked collection',
+      patient: { ...patientRecovery(), dischargeBookedAt: isoPlus(FIXED_NOW_ISO, 90) },
       currentTaskId: templateTaskId('p-recovery', 'check_1'),
       urgency: 'overdue',
       nextDue: {
@@ -82,8 +82,8 @@ function variants(): Variant[] {
       },
     },
     {
-      title: 'Custom task due soon, collection booked',
-      patient: { ...custom, dischargeBookedAt: isoPlus(FIXED_NOW_ISO, 90) },
+      title: 'Custom task due soon',
+      patient: custom,
       currentTaskId: templateTaskId('p-custom', 'check_1'),
       urgency: 'due_soon',
       nextDue: { taskId: 'p-custom:custom:1', dueAt: isoPlus(FIXED_NOW_ISO, 25) },

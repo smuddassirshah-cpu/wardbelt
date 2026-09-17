@@ -3,8 +3,8 @@
 // the validator's messages inline and hands the normalised form up. Species and sex are
 // segmented radio groups with the defaults preselected (dog, unknown) so a typical admission is
 // name, procedure and Add. Intake is any local HH:MM through a time input, with the three
-// presets and "No set time" writing straight into it; an empty box submits 'none'
-// (CHANGES-2026-09.md section 5). The patient sheet reuses `IntakeField` so the admission and
+// presets and "No set time" writing straight into it; an empty box submits 'none', while a half
+// typed one is rejected rather than read as "no set time" (CHANGES-2026-09.md section 5). The patient sheet reuses `IntakeField` so the admission and
 // the later edit cannot drift apart. `initialErrors` lets the gallery show the error state.
 import {
   INTAKE_NONE,
@@ -14,7 +14,7 @@ import {
   type PatientForm,
   type Sex,
 } from '@domain/types';
-import { validatePatientForm, type FieldErrors } from '@domain/validate';
+import { NOTES_MAX, validatePatientForm, type FieldErrors } from '@domain/validate';
 import { type RefObject } from 'preact';
 import { useId, useRef, useState } from 'preact/hooks';
 import { Sheet } from './Sheet';
@@ -22,7 +22,6 @@ import { SPECIES_LABEL } from './format';
 
 export const NO_INTAKE_LABEL = 'No set time';
 export const INTAKE_LABEL = 'Intake time';
-export const NOTES_MAX = 1000;
 
 export interface AddPatientSheetProps {
   showOwnerPhone: boolean;
@@ -161,6 +160,24 @@ export function intakeValue(raw: unknown): string {
   return s === '' ? INTAKE_NONE : s;
 }
 
+/**
+ * A time input hands back '' for a box the nurse cleared and for one she half typed alike, and
+ * only `validity.badInput` tells the two apart. Undefined means the entry is incomplete, so it
+ * must not be read as "no set time" and nothing may be dispatched for it.
+ */
+export function readIntake(input: HTMLInputElement | null): string | undefined {
+  if (input === null || input.validity.badInput) {
+    return undefined;
+  }
+  return intakeValue(input.value);
+}
+
+/** The validator owns the intake rule and its wording; only its intake message is read here. */
+export function intakeError(value: string): string | undefined {
+  const result = validatePatientForm({ intake: value });
+  return result.ok ? undefined : result.errors.intake;
+}
+
 interface ChoiceFieldProps<T extends string> {
   id: string;
   name: keyof PatientForm;
@@ -226,7 +243,9 @@ export function AddPatientSheet({
     new FormData(el).forEach((value, key) => {
       raw[key] = value;
     });
-    raw.intake = intakeValue(raw.intake);
+    // An incomplete time reaches the validator as '', which fails with the same message a bad
+    // one does, so a half-typed entry can never be saved as "no set time".
+    raw.intake = readIntake(intakeInput.current) ?? '';
     const result = validatePatientForm(raw);
     if (!result.ok) {
       setErrors(result.errors);

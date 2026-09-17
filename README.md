@@ -25,11 +25,12 @@ behavioural claim below is traced to a document under `docs/` in the
   pharmacy collect, remove IV) and discharge.
 - The outlined cell is the current step. Tap it to mark it done. Anything can be skipped or
   done out of order from the animal's sheet, because the ward does not run in order.
-- A small chip after the name says where the animal is: Waiting, In theatre or Recovery.
+- A small chip on the second line of the row says where the animal is: Waiting, In theatre or
+  Recovery.
 - When "Handover from theatre" is marked done, the four post-op checks are set for 15, 30, 45
   and 60 minutes later. When one falls due the phone vibrates and the row moves to the top with
-  a red chip naming the check and counting how overdue it is. While a check stays overdue the
-  alert repeats every five minutes.
+  a red chip showing the check's icon and counting how overdue it is. While a check stays
+  overdue the alert repeats every five minutes.
 - Everything stays on the phone. There is no login, no internet needed after the first open,
   and nothing is sent anywhere.
 - It is a task list, not clinical advice: no dosing, no pain-score interpretation, no alerts
@@ -371,7 +372,7 @@ MIT. See `LICENSE`.
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | Single-nurse, offline, no account, no server, no clinical decision support           | docs/PLAN.md section 1 (scope, non-goals)                                                                  |
 | 18 belt cells with a step icon each, phases, "current" is the first to-do; custom task codes | docs/PLAN.md section 6 (task model), docs/CHANGES-2026-09.md section 5; docs/DECISIONS.md 0.8, 0.16, 4.10 |
-| Post-op checks at +15/30/45/60 min from "In theatre" done                            | docs/PLAN.md section 6; tests/e2e/flows.spec.ts ("completing in theatre schedules the four checks at +15/30/45/60") |
+| Post-op checks at +15/30/45/60 min from "Handover from theatre" done                 | docs/PLAN.md section 6, docs/CHANGES-2026-09.md section 3; tests/e2e/flows.spec.ts ("the four checks are scheduled by the handover, not by in theatre") |
 | Board order: overdue, due within five minutes, intake tag, created                   | docs/PLAN.md section 3 (urgency.ts); docs/DECISIONS.md 1.3                                                  |
 | Add a patient in at most eight taps                                                  | docs/PLAN.md section 11 stage 5 DoD; tests/e2e/flows.spec.ts                                               |
 | Completion feedback: 30 ms buzz, green fill, 4 s toast with Undo                     | docs/PLAN.md section 10 (completion feedback); docs/DECISIONS.md 4.26                                       |

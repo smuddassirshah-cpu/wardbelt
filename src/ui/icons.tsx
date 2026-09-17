@@ -79,15 +79,19 @@ const GLYPHS: Readonly<Record<StepKey, JSX.Element>> = {
   ),
   take_out: (
     <>
-      <path d="M2.5 13.5h11" />
-      <path d="M8 13.5V5.5M8 13.5c0-3.2-1.6-5.4-4.2-6.6M8 13.5c0-3.2 1.6-5.4 4.2-6.6" />
+      <path d="M2 13.5h12" />
+      <path d="M6.2 13.5C5.4 10 4.2 7.6 2.6 5.8" />
+      <path d="M8 13.5C8 10 8 7.2 8 4.2" />
+      <path d="M9.8 13.5c.8-3.5 2-5.9 3.6-7.7" />
     </>
   ),
   pain_score: (
     <>
-      <circle cx="8" cy="8" r="6" />
-      <path d="M6 6.5v1M10 6.5v1" />
-      <path d="M5.5 10.5h5" />
+      <circle cx="8" cy="5.5" r="4" />
+      <path d="M6.6 4.6v.7M9.4 4.6v.7" />
+      <path d="M6.3 7.4h3.4" />
+      <path d="M1.5 12.5h13" />
+      <path d="M3.5 11.4v2.2M8 11.4v2.2M12.5 11.4v2.2" />
     </>
   ),
   invoice: (

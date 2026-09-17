@@ -72,6 +72,23 @@ describe('AddPatientSheet', () => {
     expect(intakeValue(undefined)).toBe('none');
   });
 
+  it('refuses a half-typed intake rather than submitting no set time', () => {
+    const onSubmit = vi.fn();
+    render(<AddPatientSheet showOwnerPhone={false} onSubmit={onSubmit} onClose={vi.fn()} />);
+    type('Name', 'Fixture Eleven');
+    type(/^Procedure/, 'Spay');
+    const intake = screen.getByLabelText<HTMLInputElement>(/^Intake time/);
+    Object.defineProperty(intake, 'validity', { value: { badInput: true }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Add patient' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText('Enter a time as HH:MM, or none')).toBeTruthy();
+    expect(intake.getAttribute('aria-invalid')).toBe('true');
+
+    Object.defineProperty(intake, 'validity', { value: { badInput: false }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Add patient' }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ intake: 'none' }));
+  });
+
   it('shows the validator message when the intake value is not a time', () => {
     render(
       <AddPatientSheet

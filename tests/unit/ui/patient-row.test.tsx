@@ -31,8 +31,8 @@ function row(patient: Patient) {
 afterEach(cleanup);
 
 /**
- * The label and the countdown are separate flex items so only the label is ever cut short, so
- * the space between them must be non-breaking: an ordinary one would collapse away.
+ * What a timer chip shows: the step's glyph and the countdown. The space before the countdown
+ * must be non-breaking, because an ordinary one at the start of a flex item collapses away.
  */
 function visibleText(chip: Element | null): string {
   const inFlow = Array.from(chip?.children ?? []).filter(
@@ -42,6 +42,14 @@ function visibleText(chip: Element | null): string {
   const text = inFlow.map((el) => el.textContent).join('');
   expect(text).toContain('\u00a0');
   return text.replace(/\u00a0/g, ' ');
+}
+
+/** The label a screen reader reads out for a chip, with the decorative glyph left out. */
+function chipLabel(chip: Element | null): string {
+  const parts = Array.from(chip?.childNodes ?? [])
+    .filter((n) => !(n instanceof Element && n.getAttribute('aria-hidden') === 'true'))
+    .map((n) => n.textContent ?? '');
+  return parts.join('').replace(/\u00a0/g, ' ');
 }
 
 describe('PatientRow', () => {
@@ -90,10 +98,11 @@ describe('PatientRow', () => {
       />,
     );
     const chip = container.querySelector('.chip--danger');
-    expect((chip?.textContent ?? '').replace(/\u00a0/g, ' ')).toBe('Post-op check 1 overdue 05:00');
-    expect(chip?.querySelector('.chip__label')?.textContent).toBe('Post-op check 1');
+    expect(chipLabel(chip)).toBe('Post-op check 1 overdue 05:00');
+    expect(chip?.querySelector('svg')?.getAttribute('data-icon')).toBe('check_1');
+    expect(chip?.querySelector('.chip__glyph')?.getAttribute('aria-hidden')).toBe('true');
     expect(chip?.classList.contains('mono')).toBe(true);
-    expect(visibleText(chip)).toBe('Post-op check 1 overdue 05:00');
+    expect(visibleText(chip)).toBe('1 overdue 05:00');
     expect(container.querySelector('.row')?.getAttribute('data-urgency')).toBe('overdue');
     expect(container.querySelector('.chip--accent')).toBeNull();
   });
@@ -112,8 +121,9 @@ describe('PatientRow', () => {
       />,
     );
     const chip = container.querySelector('.chip--warning');
-    expect((chip?.textContent ?? '').replace(/\u00a0/g, ' ')).toBe('Bandage check in 25:00');
-    expect(visibleText(chip)).toBe('Bandage check in 25:00');
+    expect(chipLabel(chip)).toBe('Bandage check in 25:00');
+    expect(chip?.querySelector('svg')).toBeNull();
+    expect(visibleText(chip)).toBe('BA in 25:00');
   });
 
   it('shows no timer chip without nextDue or when the task is unknown', () => {
@@ -150,7 +160,7 @@ describe('PatientRow', () => {
     ];
     for (const [patient, label] of cases) {
       const { container, unmount } = row(patient);
-      const chip = container.querySelector('.row__title .chip');
+      const chip = container.querySelector('.row__meta .chip');
       expect(chip?.textContent, patient.id).toBe(`Status ${label}`);
       unmount();
     }
@@ -159,21 +169,21 @@ describe('PatientRow', () => {
       t.key === 'in_theatre' ? { ...t, status: 'done' as const } : t,
     );
     const { container, unmount } = row({ ...theatre, tasks: settled });
-    expect(container.querySelector('.row__title .chip')?.textContent).toBe('Status In theatre');
+    expect(container.querySelector('.row__meta .chip')?.textContent).toBe('Status In theatre');
     unmount();
-    expect(row(patientDischarged()).container.querySelector('.row__title .chip')).toBeNull();
+    expect(row(patientDischarged()).container.querySelector('.row__meta .chip')).toBeNull();
   });
 
   it('shows the booked collection chip, in warning once the time has passed', () => {
     const p = patientPreOp();
     const later = row({ ...p, dischargeBookedAt: isoPlus(FIXED_NOW_ISO, 30) });
-    const chip = later.container.querySelector('.row__side-line .chip.mono:last-child');
+    const chip = later.container.querySelector('.row__side .chip.mono:last-child');
     expect(chip?.textContent).toBe(`Home ${formatClock(isoPlus(FIXED_NOW_ISO, 30))}`);
     expect(chip?.classList.contains('chip--warning')).toBe(false);
     later.unmount();
 
     const past = row({ ...p, dischargeBookedAt: isoPlus(FIXED_NOW_ISO, -1) });
-    expect(past.container.querySelector('.row__side-line .chip--warning')?.textContent).toBe(
+    expect(past.container.querySelector('.row__side .chip--warning')?.textContent).toBe(
       `Home ${formatClock(isoPlus(FIXED_NOW_ISO, -1))}`,
     );
     expect(past.container.querySelectorAll('.row__side .chip')).toHaveLength(2);

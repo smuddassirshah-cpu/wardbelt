@@ -11,7 +11,8 @@
 // The due tone is played from the session rather than the notifier's own deps because it is
 // gated by the Sound setting, which is read at call time; it sounds in both notifier branches, so
 // turning notifications off still leaves an audible alert. The opt-in wake lock is built once and
-// driven by an effect on the Keep screen on setting, and `stop` releases it with the scheduler.
+// driven by an effect on the Keep screen on setting, and `stop` releases it with the scheduler;
+// the platform's `onPageHide` calls `stop` so a discarded page never leaves the screen awake.
 // The session's dispatch reports whether a record changed, not whether `now` moved (the store
 // republishes on every action), so purge, undo and delete can tell a no-op apart.
 // Boot runs one PURGE_DISCHARGED (PLAN.md section 5 auto-purge) through the normal diff path.
@@ -72,6 +73,8 @@ export interface Platform {
   registerSw: RegisterSw | undefined;
   swSupported: boolean;
   onVisible: (fn: () => void) => void;
+  /** Page discarded or hidden for good: the session stops itself. */
+  onPageHide?: ((fn: () => void) => void) | undefined;
   download: (filename: string, text: string) => boolean;
   /** Web Share surface; undefined means the browser's navigator. */
   share?: ShareApi | undefined;
@@ -420,6 +423,15 @@ export function createSession(platform: Platform): Session {
 
   let lock: TabLock | undefined;
 
+  /** Idempotent: the wake lock and the timers ignore a second stop. */
+  const stop = (): void => {
+    timers.stop();
+    wakeLock.disable();
+    for (const dispose of disposers) {
+      dispose();
+    }
+  };
+
   return {
     state,
     ready,
@@ -503,15 +515,12 @@ export function createSession(platform: Platform): Session {
           timers.onVisible();
         });
       }
+      platform.onPageHide?.(() => {
+        stop();
+      });
       ready.value = true;
     },
     flush: () => store.flush(),
-    stop: () => {
-      timers.stop();
-      wakeLock.disable();
-      for (const dispose of disposers) {
-        dispose();
-      }
-    },
+    stop,
   };
 }
