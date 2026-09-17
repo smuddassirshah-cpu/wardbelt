@@ -5,7 +5,9 @@
 // without a reload. The prompt is only ever raised from the `default` state; a denial is final
 // until the user changes it in the browser. Notification display is asynchronous and every
 // failure is routed to `onError` as plain English; nothing about a patient beyond the name and
-// task label ever reaches the platform, and nothing is logged.
+// task label ever reaches the platform, and nothing is logged. `sound` is optional and is played
+// before the permission check, so the foreground tone still sounds where notifications are off or
+// unsupported; the app owns it because the tone is gated by the Sound setting.
 import type { DueTask, Notifier } from './timers';
 
 export type PermissionState = 'granted' | 'denied' | 'default' | 'unsupported';
@@ -18,6 +20,7 @@ export interface NotifyDeps {
   getRegistration?: () => Promise<
     { showNotification(title: string, options?: NotificationOptions): Promise<void> } | undefined
   >;
+  sound?: () => void;
   onError?: (reason: string) => void;
 }
 
@@ -27,9 +30,13 @@ export interface NotifierApi extends Notifier {
   vibrate(pattern: number | number[]): void;
 }
 
-/** Chrome honours `renotify`; the DOM lib omits it, so it is added here rather than dropped. */
+/**
+ * Chrome honours `renotify` and `vibrate`; the DOM lib omits both, so they are added here rather
+ * than dropped. `silent: false` stops Android delivering the alert quietly when the screen is off.
+ */
 interface DueNotificationOptions extends NotificationOptions {
   renotify: boolean;
+  vibrate: number[];
 }
 
 export const DUE_VIBRATION: readonly number[] = Object.freeze([200, 100, 200]);
@@ -65,6 +72,14 @@ export function createNotifier(deps: NotifyDeps = {}): NotifierApi {
     }
   };
 
+  const playSound = (): void => {
+    try {
+      deps.sound?.();
+    } catch (err: unknown) {
+      onError(`Could not play the due tone${describe(err)}`);
+    }
+  };
+
   const show = async (tasks: readonly DueTask[]): Promise<void> => {
     const registration =
       deps.getRegistration === undefined ? undefined : await deps.getRegistration();
@@ -76,6 +91,8 @@ export function createNotifier(deps: NotifyDeps = {}): NotifierApi {
       body: dueBody(tasks),
       tag: DUE_TAG,
       renotify: true,
+      vibrate: [...DUE_VIBRATION],
+      silent: false,
     };
     await registration.showNotification(dueTitle(tasks.length), options);
   };
@@ -100,6 +117,7 @@ export function createNotifier(deps: NotifyDeps = {}): NotifierApi {
         return;
       }
       vibrate([...DUE_VIBRATION]);
+      playSound();
       if (state() !== 'granted') {
         return;
       }

@@ -5,6 +5,7 @@ import type { Action, Patient, PatientForm, Task, TaskStatus } from '../../../sr
 import { createFakeClock } from '../../../src/scheduler/clock';
 import {
   DEFAULT_MAX_DELAY_MS,
+  REPEAT_MS,
   createTimers,
   type DueTask,
   type TimersOptions,
@@ -180,7 +181,7 @@ describe('createTimers: arming', () => {
 });
 
 describe('createTimers: due sweep', () => {
-  it('fires exactly one DUE and one notification when a task becomes due, and never again', () => {
+  it('fires exactly one DUE and one notification when a task becomes due, and no repeat before REPEAT_MS', () => {
     const dueAt = new Date(FIXED_NOW_MS + 30_000).toISOString();
     const p = withTasks('p-one', FORM_CAT, [timedTask('p-one:t', 'Bandage check', dueAt)]);
     const h = harness([p]);
@@ -201,13 +202,13 @@ describe('createTimers: due sweep', () => {
       ],
     ]);
     expect(h.log).toEqual(['TICK', 'DUE', 'notify']);
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       h.timers.reschedule();
       h.clock.advance(MIN);
     }
     expect(h.dues()).toHaveLength(1);
     expect(h.batches).toHaveLength(1);
-    expect(h.ticks()).toHaveLength(11);
+    expect(h.ticks()).toHaveLength(5);
     expect(h.clock.pending()).toBe(1);
   });
 
@@ -281,7 +282,11 @@ describe('createTimers: due sweep', () => {
     expect(h.clock.pending()).toBe(1);
     h.clock.advance(10 * MIN);
     expect(h.dues()).toHaveLength(2);
-    expect(h.batches).toHaveLength(2);
+    expect(h.batches).toHaveLength(3);
+    expect(h.batches[2]?.map((t) => t.taskId)).toEqual([
+      'p-recovery:check_1',
+      'p-recovery:check_2',
+    ]);
   });
 
   it('neither throws nor notifies on a backwards clock jump and caps the delay', () => {
@@ -378,8 +383,11 @@ describe('createTimers: due sweep', () => {
     h.clock.advance(0);
     expect(h.batches).toHaveLength(2);
     expect(h.dues()).toHaveLength(2);
-    h.clock.advance(5 * MIN);
+    h.clock.advance(REPEAT_MS - 1);
     expect(h.batches).toHaveLength(2);
+    h.clock.advance(1);
+    expect(h.batches).toHaveLength(3);
+    expect(h.dues()).toHaveLength(2);
   });
 
   it('re-notifies a task completed and undone within a single tick window', () => {
@@ -404,8 +412,11 @@ describe('createTimers: due sweep', () => {
     ]);
     expect(h.batches).toHaveLength(2);
     expect(h.batches[1]?.[0]?.taskId).toBe('p-un:t');
-    h.clock.advance(5 * MIN);
+    h.clock.advance(3 * MIN - 1);
     expect(h.batches).toHaveLength(2);
+    h.clock.advance(1);
+    expect(h.batches).toHaveLength(3);
+    expect(h.dues()).toHaveLength(2);
   });
 
   it('re-notifies a task whose dueAt moves away and back within a single tick window', () => {
@@ -426,7 +437,8 @@ describe('createTimers: due sweep', () => {
     expect(h.batches[1]?.[0]?.dueAt).toBe(first);
     expect(h.dues().map((d) => d.now)).toEqual([FIXED_NOW_MS + 30_000, FIXED_NOW_MS + 33_000]);
     h.clock.advance(15 * MIN);
-    expect(h.batches).toHaveLength(2);
+    expect(h.batches).toHaveLength(5);
+    expect(h.dues()).toHaveLength(2);
   });
 
   it('forgets an announced task once it is completed, so a later undo announces it fresh', () => {
@@ -502,7 +514,8 @@ describe('createTimers: due sweep', () => {
     expect(batches).toHaveLength(1);
     clock.advance(5 * MIN);
     expect(clock.pending()).toBe(1);
-    expect(batches).toHaveLength(1);
+    expect(batches).toHaveLength(2);
+    expect(actions.filter((a) => a.type === 'DUE')).toHaveLength(1);
   });
 
   it('re-arms even when dispatch throws, and lets the error propagate', () => {
@@ -580,5 +593,144 @@ describe('createTimers: nextDueAt', () => {
     h.timers.onVisible();
     expect(h.batches).toHaveLength(1);
     expect(h.timers.nextDueAt()).toBe(FIXED_NOW_MS - 5 * MIN);
+  });
+});
+
+describe('createTimers: repeat while overdue', () => {
+  it('repeats at exactly REPEAT_MS, not before, and keeps repeating', () => {
+    const h = harness([
+      withTasks('p-rep', FORM_DOG, [timedTask('p-rep:t', 'Check', FIXED_NOW_ISO)]),
+    ]);
+    h.timers.start();
+    h.timers.onVisible();
+    expect(REPEAT_MS).toBe(5 * MIN);
+    expect(h.batches).toHaveLength(1);
+    h.clock.advance(REPEAT_MS - 1);
+    expect(h.batches).toHaveLength(1);
+    h.clock.advance(1);
+    expect(h.batches).toHaveLength(2);
+    expect(h.batches[1]).toEqual(h.batches[0]);
+    h.clock.advance(REPEAT_MS);
+    expect(h.batches).toHaveLength(3);
+  });
+
+  it('dispatches DUE on the first announcement only, however many times it repeats', () => {
+    const h = harness([withTasks('p-d1', FORM_CAT, [timedTask('p-d1:t', 'Check', FIXED_NOW_ISO)])]);
+    h.timers.start();
+    h.timers.onVisible();
+    h.clock.advance(3 * REPEAT_MS);
+    expect(h.batches).toHaveLength(4);
+    expect(h.dues()).toEqual([
+      { type: 'DUE', patientId: 'p-d1', taskId: 'p-d1:t', now: FIXED_NOW_MS },
+    ]);
+  });
+
+  it('stops repeating a task completed between repeats', () => {
+    const todo = withTasks('p-c', FORM_CAT, [timedTask('p-c:t', 'Check', FIXED_NOW_ISO)]);
+    const done = withTasks('p-c', FORM_CAT, [timedTask('p-c:t', 'Check', FIXED_NOW_ISO, 'done')]);
+    const h = harness([todo]);
+    h.timers.start();
+    h.timers.onVisible();
+    h.clock.advance(2 * MIN);
+    h.setPatients([done]);
+    h.timers.reschedule();
+    h.clock.advance(20 * MIN);
+    expect(h.batches).toHaveLength(1);
+    expect(h.dues()).toHaveLength(1);
+  });
+
+  it('stops repeating a task that is skipped or whose patient is discharged', () => {
+    const p = withTasks('p-s', FORM_RABBIT, [timedTask('p-s:t', 'Check', FIXED_NOW_ISO)]);
+    const h = harness([p]);
+    h.timers.start();
+    h.timers.onVisible();
+    h.setPatients([
+      withTasks('p-s', FORM_RABBIT, [timedTask('p-s:t', 'Check', FIXED_NOW_ISO, 'skipped')]),
+    ]);
+    h.timers.reschedule();
+    h.clock.advance(20 * MIN);
+    expect(h.batches).toHaveLength(1);
+    h.setPatients([{ ...p, status: 'discharged' }]);
+    h.timers.reschedule();
+    h.clock.advance(20 * MIN);
+    expect(h.batches).toHaveLength(1);
+  });
+
+  it('restarts a repeating task as a first announcement when its dueAt moves', () => {
+    const first = isoPlus(FIXED_NOW_ISO, -10);
+    const second = isoPlus(FIXED_NOW_ISO, -3);
+    const h = harness([withTasks('p-m', FORM_DOG, [timedTask('p-m:t', 'Check', first)])]);
+    h.timers.start();
+    h.timers.onVisible();
+    h.clock.advance(REPEAT_MS);
+    expect(h.batches).toHaveLength(2);
+    expect(h.dues()).toHaveLength(1);
+    h.setPatients([withTasks('p-m', FORM_DOG, [timedTask('p-m:t', 'Check', second)])]);
+    h.timers.reschedule();
+    h.clock.advance(0);
+    expect(h.batches).toHaveLength(3);
+    expect(h.batches[2]?.[0]?.dueAt).toBe(second);
+    expect(h.dues()).toHaveLength(2);
+    h.clock.advance(REPEAT_MS - 1);
+    expect(h.batches).toHaveLength(3);
+    h.clock.advance(1);
+    expect(h.batches).toHaveLength(4);
+    expect(h.dues()).toHaveLength(2);
+  });
+
+  it('arms the earlier of the next unannounced due time and the next repeat', () => {
+    const overdue = withTasks('p-o', FORM_DOG, [
+      timedTask('p-o:t', 'Overdue check', FIXED_NOW_ISO),
+    ]);
+    const later = withTasks('p-l', FORM_CAT, [
+      timedTask('p-l:t', 'Later check', isoPlus(FIXED_NOW_ISO, 2)),
+    ]);
+    const h = harness([overdue, later], { maxDelayMs: 60 * MIN });
+    h.timers.start();
+    h.timers.onVisible();
+    expect(h.batches[0]?.map((t) => t.taskId)).toEqual(['p-o:t']);
+    h.clock.advance(2 * MIN - 1);
+    expect(h.batches).toHaveLength(1);
+    h.clock.advance(1);
+    expect(h.batches[1]?.map((t) => t.taskId)).toEqual(['p-l:t']);
+    h.clock.advance(3 * MIN - 1);
+    expect(h.batches).toHaveLength(2);
+    h.clock.advance(1);
+    expect(h.batches[2]?.map((t) => t.taskId)).toEqual(['p-o:t']);
+    expect(h.dues()).toHaveLength(2);
+  });
+
+  it('batches a repeat with a first announcement, most overdue first', () => {
+    const overdue = withTasks('p-ov', FORM_DOG, [
+      timedTask('p-ov:t', 'Overdue check', FIXED_NOW_ISO),
+    ]);
+    const soon = withTasks('p-sn', FORM_CAT, [
+      timedTask('p-sn:t', 'Soon check', isoPlus(FIXED_NOW_ISO, 5)),
+    ]);
+    const h = harness([overdue, soon]);
+    h.timers.start();
+    h.timers.onVisible();
+    h.clock.advance(REPEAT_MS);
+    expect(h.batches).toHaveLength(2);
+    expect(h.batches[1]?.map((t) => t.taskId)).toEqual(['p-ov:t', 'p-sn:t']);
+    expect(h.dues().map((d) => d.taskId)).toEqual(['p-ov:t', 'p-sn:t']);
+  });
+
+  it('suspends repeats while a backwards clock jump leaves the task not yet due', () => {
+    const h = harness([
+      withTasks('p-b', FORM_RABBIT, [timedTask('p-b:t', 'Check', FIXED_NOW_ISO)]),
+    ]);
+    h.timers.start();
+    h.timers.onVisible();
+    expect(h.batches).toHaveLength(1);
+    h.clock.set(FIXED_NOW_MS - 30 * MIN);
+    h.timers.onVisible();
+    h.clock.advance(20 * MIN);
+    expect(h.batches).toHaveLength(1);
+    h.clock.advance(6 * MIN);
+    expect(h.batches).toHaveLength(1);
+    h.clock.advance(9 * MIN);
+    expect(h.batches).toHaveLength(2);
+    expect(h.dues()).toHaveLength(1);
   });
 });

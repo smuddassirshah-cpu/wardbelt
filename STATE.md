@@ -654,3 +654,117 @@ none: deployed
 
 Deploy confirmation (orchestrator, 2026-09-09): CI run and Pages run for main commit 5b76ee9 both completed with conclusion success. Live checks against https://smuddassirshah-cpu.github.io/wardbelt/ : index 200 with the CSP meta; manifest.webmanifest 200 (name Wardbelt, start_url and scope /wardbelt/, display standalone, icons 192, 512 and maskable 512, each served 200 image/png); sw.js 200 (17 precache entries including index.html); all asset references under /wardbelt/assets/. Playwright Pixel 5 against the live URL: navigator.serviceWorker.ready resolves with scope /wardbelt/, the controller is /wardbelt/sw.js after reload, an offline reload still renders the board, the empty state and the 48 px Add patient button render after hydration, zero console errors.
 
+
+### Post field test WP B: scheduler (implementing subagent, 2026-09-17)
+
+Branch `change/b-scheduler`. Scope: CHANGES-2026-09.md section 4 only. Files touched:
+`src/scheduler/timers.ts`, `src/scheduler/notify.ts`, `src/scheduler/wakelock.ts` (new),
+`tests/unit/scheduler/timers.test.ts`, `tests/unit/scheduler/notify.test.ts`,
+`tests/unit/scheduler/wakelock.test.ts` (new). Nothing outside `src/scheduler` and
+`tests/unit/scheduler` was changed; no exported name or signature was altered, only added, so
+`src/ui/app/session.ts` compiles unchanged.
+
+**Built**
+
+- `timers.ts`: `REPEAT_MS = 5 * 60_000` exported. The announcement map is now
+  `taskId -> { dueAt, announcedAt }`. A task that is still `todo`, still overdue and last
+  announced at least `REPEAT_MS` ago is announced again in the next `notifier.due` batch with its
+  `announcedAt` refreshed. The map is still rebuilt from the board on every sweep and every arm,
+  so completed, skipped, removed and rescheduled tasks drop out or restart exactly as before. The
+  armed delay is `clamp(min(earliest unannounced dueAt, earliest announcedAt + REPEAT_MS) - now,
+  0, maxDelayMs)`, or `maxDelayMs` when nothing is pending. `DUE` is dispatched on the first
+  announcement of a `dueAt` only, never on a repeat, so the `Action` union is untouched.
+  `onVisible`, `nextDueAt`, `start`, `stop` and `reschedule` behave as before.
+- `notify.ts`: `DueNotificationOptions` now also carries `vibrate: number[]`, and the due
+  notification is shown with `vibrate: [...DUE_VIBRATION]` and `silent: false` (`silent` is
+  already on the DOM `NotificationOptions`, `vibrate` is not). `NotifyDeps` gains
+  `sound?: () => void`; `due` calls it after the vibration and before the permission check, so the
+  tone plays in every permission state including `unsupported`, and a throw from it is caught and
+  routed to `onError` as `Could not play the due tone[: message]` without stopping the vibration
+  or the notification. `browserNotifyDeps` does not set `sound`.
+- `wakelock.ts` (new): `createWakeLock(deps?)` returning `{ enable, disable, held }`, plus
+  `browserWakeLockDeps()` and the exported `WakeLockSentinel` shape (a named alias for the inline
+  sentinel type in the spec, added so the module can talk about it; no interface change).
+  `enable` acquires when visible and subscribes to visibility so it re-acquires every time the
+  page comes back; the platform's `release` event clears the held sentinel. `disable` releases,
+  unsubscribes and, when a request is in flight, releases the sentinel on arrival. Both are
+  idempotent. A rejected or synchronously throwing request is reported once per attempt as
+  `Could not keep the screen on[: message]` and leaves the lock wanted, so the next visibility
+  change retries; a rejected release is reported as `Could not release the screen wake lock`.
+  Every API is feature-detected (`navigator.wakeLock`, `navigator.wakeLock.request`, `document`),
+  nothing throws where one is missing, and no patient data reaches the module.
+
+**DoD evidence** (worktree `/home/user/wardbelt-wt/b`, whole repo, not just the package)
+
+- `npm run lint`: `eslint . --max-warnings 0` clean, then `prettier --check .` prints
+  `All matched files use Prettier code style!`. No rule disabled, no config touched.
+- `npm run typecheck`: `tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sw.json --noEmit`, no
+  output, exit 0.
+- `npm test` (`vitest run --coverage`): `Test Files 43 passed (43)`, `Tests 514 passed (514)`.
+  `tests/unit/scheduler` is 4 files, 89 tests (clock 11, timers 36 was 28, notify 23 was 19,
+  wakelock 19 new). Whole-repo coverage: statements 99.21% (1905/1920), branches 97.21%
+  (1256/1292), functions 98.47% (515/523), lines 99.35% (1854/1866); `src/domain` stays at its
+  100% threshold. `src/scheduler` from `coverage/coverage-summary.json`: `clock.ts`, `notify.ts`,
+  `timers.ts` and `wakelock.ts` each 100% statements, branches, functions and lines.
+- `npm run build`: `index.html` 1.35 kB, `assets/index-*.css` 14.93 kB (gzip 3.13 kB),
+  `assets/index-*.js` 93.99 kB (gzip 32.54 kB), `assets/DevGallery-*.js` 8.15 kB,
+  `assets/workbox-window.prod.es5-*.js` 5.75 kB, `manifest.webmanifest` 0.50 kB, `sw.mjs`
+  17.07 kB (gzip 5.73 kB), precache 13 entries (126.04 KiB). Unchanged from the pre-change build:
+  `wakelock.ts` has no importer yet, so it is tree-shaken until WP C wires it.
+- Tests use the fake clock only. No `vi.useFakeTimers` was added anywhere; the wake lock tests
+  drain the microtask queue with awaited `Promise.resolve()` and drive visibility by hand.
+
+**Deviations from the spec**
+
+- The sentinel type in `WakeLockDeps.request` is written as an exported named interface
+  `WakeLockSentinel` rather than repeated inline. The shape is identical to the spec's inline
+  type, so the interface is unchanged for WP C.
+- Six existing `timers.test.ts` cases asserted "no further notification" over windows that now
+  cross a repeat boundary. None were deleted: each was tightened to assert the repeat instead
+  (exact counts at the boundary, and `DUE` still dispatched once). The renamed case is
+  "fires exactly one DUE and one notification when a task becomes due, and no repeat before
+  REPEAT_MS".
+- A backwards clock jump that leaves an announced task not yet due suspends its repeats until it
+  is overdue again (the spec says "still overdue"), and the announcement is kept rather than
+  re-announced when the clock returns. Covered by a test.
+
+**Open questions (mostly for WP C)**
+
+- `sound`: WP C passes `sound: () => dueTone({ sound: state.value.settings.sound, onError:
+  transient })` in the `createNotifier` deps in `session.ts`. It must read the setting live at
+  call time (a closure over `state.value`), not capture it at construction. Note that the current
+  `gated` wrapper short-circuits `notifier.due` to a bare `notifier.vibrate` when notifications
+  are off, which would skip the tone; `gated` should call `notifier.due` in both branches, or
+  play the tone itself in the notifications-off branch, otherwise finding 3 is only half fixed.
+- Wake lock: `session.ts` creates it once with `createWakeLock({ ...browserWakeLockDeps(),
+  onError: transient })` and drives it from an `effect` on `settings.keepScreenOn` (`enable` when
+  true, `disable` when false). Both calls are idempotent, so the effect needs no guard. The
+  session should `disable()` on teardown alongside `timers.stop()` if a teardown path exists.
+  Errors arrive as one plain sentence per attempt, suitable for the transient banner as is.
+- Repeats are driven by the sweep, which is capped at 60 s, so a repeat lands within 60 s of
+  `announcedAt + REPEAT_MS`, not to the millisecond. The Settings copy ("Alerts repeat every 5
+  minutes while a check is overdue") is accurate at this granularity.
+- `REPEAT_MS` is exported from `@scheduler/timers` if WP C wants the Settings hint to derive the
+  "5 minutes" rather than hard-code it.
+
+**Fix round (verifier FAIL, 2026-09-17)**
+
+The verifier returned one failure and two notes, all in `src/scheduler/wakelock.ts`; all three are
+fixed with a regression test each, and no exported name or signature changed. F1: `release()`
+throwing synchronously escaped through `disable()`, so the module could throw after all. `drop`
+now guards the call the same way `acquire` guards `request()`, routing a synchronous throw to the
+same `Could not release the screen wake lock` message as a rejection. N1: a request that rejected
+after `disable` still reported, which would raise a banner just as the nurse switched "Keep screen
+on" off. Acquisition failures now go through one `acquireFailed` helper that clears `pending` and
+reports only while the lock is still wanted; a later `enable` retries as before. N2: a throwing
+`sentinel.addEventListener` left `held()` true while reporting an acquisition failure. The
+sentinel is now adopted only after its release listener is attached, and on that failure it is
+released and the failure reported, so `held()` is false and the message agrees. Tests added:
+"never lets a synchronously throwing release escape disable", "does not report a request that
+rejects after disable" (including that a later enable still succeeds), and "releases the sentinel
+and reports when its release listener cannot be attached". Gate re-run green in the worktree:
+lint and prettier clean; typecheck clean; `Test Files 43 passed (43)`, `Tests 517 passed (517)`
+(`tests/unit/scheduler` 92, wakelock 22); repo coverage statements 99.22% (1913/1928), branches
+97.21% (1258/1294), functions 98.47% (515/523), lines 99.35% (1862/1874), with all four
+`src/scheduler` modules still at 100% on every metric; build byte-identical to the first round
+(`index-DqKuzSBK.js` 93.99 kB gzip 32.54 kB, `sw.mjs` 17.07 kB, precache 13 entries 126.04 KiB).
