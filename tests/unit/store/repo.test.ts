@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SETTINGS, type Event, type Patient } from '../../../src/domain/types';
+import { initialState } from '../../../src/domain/reducer';
+import { shiftStats } from '../../../src/domain/stats';
+import { DEFAULT_SETTINGS, type Event, type Patient, type State } from '../../../src/domain/types';
 import { DEFAULT_RETRY_DELAY_MS, openRepo, type Repo } from '../../../src/store/repo';
 import {
   FIXED_NOW_ISO,
+  FIXED_NOW_MS,
   FIXTURE_SETTINGS,
   allFixturePatients,
   fixtureEvents,
@@ -56,6 +59,14 @@ function byId<T extends { id: string }>(list: readonly T[]): T[] {
   return [...list].sort((a, b) => a.id.localeCompare(b.id));
 }
 
+function stateOf(patients: readonly Patient[], events: readonly Event[]): State {
+  return {
+    ...initialState(FIXED_NOW_MS),
+    patients: Object.fromEntries(patients.map((p) => [p.id, p])),
+    events,
+  };
+}
+
 const opened: Repo[] = [];
 afterEach(() => {
   for (const repo of opened.splice(0)) {
@@ -105,6 +116,7 @@ describe('openRepo in IndexedDB mode', () => {
     const rows = await rawGetAll(raw, 'settings');
     raw.close();
     expect(byKey(rows)).toEqual([
+      { key: 'keepScreenOn', value: false },
       { key: 'lastExportAt', value: FIXED_NOW_ISO },
       { key: 'notifications', value: true },
       { key: 'purgeDays', value: 30 },
@@ -665,5 +677,69 @@ describe('write retry and queue', () => {
     await expect(repo.savePatient(patientFresh())).rejects.toThrow('listener exploded');
     await expect(repo.savePatient(patientPreOp())).rejects.toThrow('listener exploded');
     expect(byId((await repo.load()).patients)).toEqual(byId([patientFresh(), patientPreOp()]));
+  });
+});
+
+describe('load drops a retired step from a stored record', () => {
+  it('yields eighteen contiguous tasks and rewrites the trimmed record on the next save', async () => {
+    const factory = freshFactory();
+    const name = uniqueName();
+    const h = harness();
+    const creator = await open(h, factory, name);
+    creator.close();
+
+    const p = patientFresh();
+    const retired = {
+      id: `${p.id}:to_theatre`,
+      key: 'to_theatre',
+      label: 'To theatre',
+      phase: 'PRE_OP',
+      order: 4,
+      status: 'done',
+      doneAt: FIXED_NOW_ISO,
+      custom: false,
+    };
+    const stored = {
+      ...p,
+      tasks: [
+        ...p.tasks.slice(0, 4),
+        retired,
+        ...p.tasks.slice(4).map((t) => ({ ...t, order: t.order + 1 })),
+      ],
+    };
+    const completion: Event = {
+      id: 'e-retired',
+      at: FIXED_NOW_ISO,
+      type: 'TASK_COMPLETED',
+      patientId: p.id,
+      taskId: retired.id,
+      taskKey: 'to_theatre',
+      custom: false,
+    };
+    const raw = await rawOpen(factory, name);
+    await rawPut(raw, 'patients', stored);
+    await rawPut(raw, 'events', completion);
+    raw.close();
+
+    const repo = await open(h, factory, name);
+    const loaded = await repo.load();
+    expect(loaded.corrupt).toBe(0);
+    expect(h.notices).toEqual([]);
+    const only = nth(loaded.patients, 0);
+    expect(only.tasks).toHaveLength(18);
+    expect(only.tasks.map((t) => t.order)).toEqual([...Array(18).keys()]);
+    expect(only).toEqual(p);
+    expect(loaded.events).toEqual([completion]);
+    expect(shiftStats(stateOf(loaded.patients, loaded.events), FIXED_NOW_MS).tasksCompleted).toBe(
+      1,
+    );
+
+    await repo.savePatient(only);
+    const reopened = await repo.load();
+    expect(nth(reopened.patients, 0)).toEqual(p);
+    const rawAfter = await rawOpen(factory, name);
+    const rows = (await rawGetAll(rawAfter, 'patients')) as Patient[];
+    rawAfter.close();
+    expect(nth(rows, 0).tasks).toHaveLength(18);
   });
 });

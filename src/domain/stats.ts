@@ -100,6 +100,7 @@ export function shiftStats(state: State, nowMs: number): ShiftStats {
         break;
       case 'TASK_ADDED':
       case 'THEATRE_RETURN':
+      case 'DISCHARGE_BOOKED':
       case 'UNDO':
       case 'PATIENT_DELETED':
         break;

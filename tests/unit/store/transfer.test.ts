@@ -304,6 +304,42 @@ describe('export and import', () => {
     }
   });
 
+  it('imports an older file with a to_theatre task and no keepScreenOn setting', () => {
+    const text = withFile((f) => {
+      const p = patient0(f);
+      const tasks = p.tasks as Task[];
+      p.tasks = [
+        ...tasks.slice(0, 4),
+        {
+          id: `${String(p.id)}:to_theatre`,
+          key: 'to_theatre',
+          label: 'To theatre',
+          phase: 'PRE_OP',
+          order: 4,
+          status: 'done',
+          doneAt: FIXED_NOW_ISO,
+          custom: false,
+        },
+        ...tasks.slice(4).map((t) => ({ ...t, order: t.order + 1 })),
+      ];
+      event0(f).taskKey = 'to_theatre';
+      const settings: Record<string, unknown> = { ...f.settings };
+      delete settings.keepScreenOn;
+      return { ...f, settings };
+    });
+    const r = parseImport(text);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.schemaVersion).toBe(TRANSFER_SCHEMA_VERSION);
+      const first = r.value.patients[0];
+      expect(first?.tasks).toHaveLength(18);
+      expect(first?.tasks.map((t) => t.order)).toEqual([...Array(18).keys()]);
+      expect(first?.tasks.some((t) => (t.key as string) === 'to_theatre')).toBe(false);
+      expect(r.value.events[0]?.taskKey).toBe('to_theatre');
+      expect(r.value.settings.keepScreenOn).toBe(false);
+    }
+  });
+
   it('accepts a file exactly at the byte cap', () => {
     const base = withFile((f) => ({ ...f, pad: '' }));
     const room = IMPORT_SIZE_CAP_BYTES - new TextEncoder().encode(base).byteLength;

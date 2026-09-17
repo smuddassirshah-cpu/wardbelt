@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addCustomTask,
+  bookDischarge,
   completeTask,
   createPatient,
   currentTask,
@@ -107,16 +108,24 @@ describe('completeTask and skipTask', () => {
     expect(s.status).toBe('active');
   });
 
-  it('completing in_theatre records the return and schedules the checks; skipping does not', () => {
+  it('completing handover_theatre records the return and schedules the checks; skipping does not', () => {
     const p = deepFreeze(patientInTheatre());
-    const back = completeTask(p, taskOf(p, 'in_theatre').id, T1);
+    const back = completeTask(p, taskOf(p, 'handover_theatre').id, T1);
     expect(back.theatreReturnAt).toBe(T1);
     expect(taskOf(back, 'check_1').dueAt).toBe(isoPlus(T1, 15));
     expect(taskOf(back, 'check_4').dueAt).toBe(isoPlus(T1, 60));
     expect(taskOf(back, 'handover_theatre').dueAt).toBeUndefined();
-    const skipped = skipTask(p, taskOf(p, 'in_theatre').id, T1);
+    const skipped = skipTask(p, taskOf(p, 'handover_theatre').id, T1);
     expect(skipped.theatreReturnAt).toBeUndefined();
     expect(taskOf(skipped, 'check_1').dueAt).toBeUndefined();
+  });
+
+  it('completing in_theatre records nothing timed', () => {
+    const p = deepFreeze(patientInTheatre());
+    const inside = completeTask(p, taskOf(p, 'in_theatre').id, T1);
+    expect(inside.theatreReturnAt).toBeUndefined();
+    expect(taskOf(inside, 'check_1').dueAt).toBeUndefined();
+    expect(taskOf(inside, 'in_theatre')).toMatchObject({ status: 'done', doneAt: T1 });
   });
 
   it('completing discharge discharges the patient; skipping it does not', () => {
@@ -236,6 +245,34 @@ describe('dischargePatient', () => {
   });
 });
 
+describe('bookDischarge', () => {
+  it('sets, replaces and clears the collection time, keeping the reference when unchanged', () => {
+    const p = deepFreeze(patientFresh());
+    expect(bookDischarge(p, undefined)).toBe(p);
+    const booked = bookDischarge(p, T1);
+    expect(booked.dischargeBookedAt).toBe(T1);
+    expect(bookDischarge(booked, T1)).toBe(booked);
+    const moved = bookDischarge(booked, T2);
+    expect(moved.dischargeBookedAt).toBe(T2);
+    const cleared = bookDischarge(moved, undefined);
+    expect('dischargeBookedAt' in cleared).toBe(false);
+    expect(JSON.stringify(cleared)).toBe(JSON.stringify(p));
+    expect(cleared.tasks).toBe(p.tasks);
+  });
+
+  it('leaves a discharged patient alone', () => {
+    const p = deepFreeze(dischargePatient(patientFresh(), T1));
+    expect(bookDischarge(p, T2)).toBe(p);
+    const withBooking = deepFreeze({ ...patientFresh(), status: 'discharged' as const });
+    expect(bookDischarge(withBooking, undefined)).toBe(withBooking);
+  });
+
+  it('survives a discharge once recorded', () => {
+    const booked = bookDischarge(patientFresh(), T1);
+    expect(dischargePatient(booked, T2).dischargeBookedAt).toBe(T1);
+  });
+});
+
 describe('revertTask', () => {
   it('puts a done or skipped task back byte-for-byte and ignores the rest', () => {
     const p = deepFreeze(patientFresh());
@@ -246,24 +283,32 @@ describe('revertTask', () => {
     expect(JSON.stringify(revertTask(skipTask(p, id, T1), id))).toBe(JSON.stringify(p));
   });
 
-  it('reverting a completed in_theatre clears the return and check due times', () => {
+  it('reverting a completed handover_theatre clears the return and check due times', () => {
     const p = deepFreeze(patientInTheatre());
-    const id = taskOf(p, 'in_theatre').id;
+    const id = taskOf(p, 'handover_theatre').id;
     const back = completeTask(p, id, T1);
     const reverted = revertTask(back, id);
     expect(JSON.stringify(reverted)).toBe(JSON.stringify(p));
     expect('theatreReturnAt' in reverted).toBe(false);
   });
 
-  it('reverting a skipped in_theatre keeps a separately recorded return', () => {
+  it('reverting a skipped handover_theatre keeps a separately recorded return', () => {
     const p = patientRecovery();
     const withSkip: Patient = {
       ...p,
       tasks: p.tasks.map((t) =>
-        t.key === 'in_theatre' ? { ...t, status: 'skipped' as const, doneAt: T1 } : t,
+        t.key === 'handover_theatre' ? { ...t, status: 'skipped' as const, doneAt: T1 } : t,
       ),
     };
-    const reverted = revertTask(withSkip, taskOf(p, 'in_theatre').id);
+    const reverted = revertTask(withSkip, taskOf(p, 'handover_theatre').id);
+    expect(reverted.theatreReturnAt).toBe(p.theatreReturnAt);
+    expect(taskOf(reverted, 'check_1').dueAt).toBe(taskOf(p, 'check_1').dueAt);
+    expect(taskOf(reverted, 'handover_theatre').status).toBe('todo');
+  });
+
+  it('reverting a completed in_theatre leaves the return alone', () => {
+    const p = patientRecovery();
+    const reverted = revertTask(p, taskOf(p, 'in_theatre').id);
     expect(reverted.theatreReturnAt).toBe(p.theatreReturnAt);
     expect(taskOf(reverted, 'check_1').dueAt).toBe(taskOf(p, 'check_1').dueAt);
     expect(taskOf(reverted, 'in_theatre').status).toBe('todo');
