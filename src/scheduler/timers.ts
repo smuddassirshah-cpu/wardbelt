@@ -1,15 +1,19 @@
 // Decision notes: one armed timer at a time (PLAN.md section 8). `arm` always clears first, so
 // a re-entrant `reschedule` from inside a dispatch can never leave two timers armed. Patients
-// are read through `getPatients` on every pass and nothing but task ids and due strings is
-// retained: `notified` maps a task id to the dueAt it was announced at. It is rebuilt from the
-// board on every arm as well as every sweep, so a task drops out the moment it is completed,
-// skipped or removed or its dueAt moves, and a task undone back to outstanding (or back to its
-// old dueAt) re-announces on the next sweep even when no tick fell in between. The delay is
-// computed from tasks still awaiting announcement, so an overdue task already announced does
-// not re-arm a zero delay in a loop; `nextDueAt` keeps the plain section 8 meaning (earliest
-// dueAt of any outstanding task on an active patient). A backwards clock jump only lengthens
-// delays, which the cap bounds. Newly due tasks are announced most overdue first (k log k over
-// the newly due subset only) so the notification's five-line cut keeps the ones that matter.
+// are read through `getPatients` on every pass and nothing but task ids, due strings and the
+// moment of the last announcement is retained: `announced` maps a task id to
+// `{ dueAt, announcedAt }`. It is rebuilt from the board on every arm as well as every sweep,
+// so a task drops out the moment it is completed, skipped or removed or its dueAt moves, and a
+// task undone back to outstanding (or back to its old dueAt) re-announces on the next sweep
+// even when no tick fell in between. An overdue task that stays outstanding is announced again
+// every REPEAT_MS, so an alert missed with the screen off comes back; `DUE` is a tick and is
+// dispatched on the first announcement of a dueAt only. The delay is the earlier of the next
+// unannounced dueAt and the next repeat, so an overdue task never re-arms a zero delay in a
+// loop; `nextDueAt` keeps the plain section 8 meaning (earliest dueAt of any outstanding task
+// on an active patient). A backwards clock jump only lengthens delays, which the cap bounds,
+// and suspends repeats until the task is overdue again. Newly due tasks are announced most
+// overdue first (k log k over the announced subset only) so the notification's five-line cut
+// keeps the ones that matter.
 import type { Action, Iso, Patient, Task } from '../domain/types';
 import type { Clock } from './clock';
 
@@ -43,6 +47,14 @@ export interface Timers {
 
 export const DEFAULT_MAX_DELAY_MS = 60_000;
 
+/** An overdue task is announced again this often until it is completed, skipped or removed. */
+export const REPEAT_MS = 5 * 60_000;
+
+interface Announcement {
+  dueAt: Iso;
+  announcedAt: number;
+}
+
 interface Timed {
   patient: Patient;
   task: Task;
@@ -73,9 +85,13 @@ export function createTimers(options: TimersOptions): Timers {
   const maxDelayMs = options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
   let timerId: number | undefined;
   let running = false;
-  let notified = new Map<string, Iso>();
+  let announced = new Map<string, Announcement>();
 
-  const isAnnounced = (t: Timed): boolean => notified.get(t.task.id) === t.dueAt;
+  /** The live announcement for this task, or undefined when it has never had this dueAt. */
+  const current = (t: Timed): Announcement | undefined => {
+    const a = announced.get(t.task.id);
+    return a?.dueAt === t.dueAt ? a : undefined;
+  };
 
   const clear = (): void => {
     if (timerId !== undefined) {
@@ -87,47 +103,59 @@ export function createTimers(options: TimersOptions): Timers {
   const sweep = (): void => {
     const now = clock.now();
     dispatch({ type: 'TICK', now });
-    const kept = new Map<string, Iso>();
-    const fresh: { ms: number; task: DueTask }[] = [];
+    const kept = new Map<string, Announcement>();
+    const fresh: { ms: number; first: boolean; task: DueTask }[] = [];
     for (const t of timedTodo(getPatients())) {
-      if (isAnnounced(t)) {
-        kept.set(t.task.id, t.dueAt);
-      } else if (t.ms <= now) {
-        kept.set(t.task.id, t.dueAt);
-        fresh.push({
-          ms: t.ms,
-          task: {
-            patientId: t.patient.id,
-            patientName: t.patient.name,
-            taskId: t.task.id,
-            label: t.task.label,
-            dueAt: t.dueAt,
-          },
-        });
+      const a = current(t);
+      const overdue = t.ms <= now;
+      const repeating = a !== undefined && overdue && now - a.announcedAt >= REPEAT_MS;
+      if (a !== undefined && !repeating) {
+        kept.set(t.task.id, a);
+        continue;
+      }
+      if (!overdue) {
+        continue;
+      }
+      kept.set(t.task.id, { dueAt: t.dueAt, announcedAt: now });
+      fresh.push({
+        ms: t.ms,
+        first: a === undefined,
+        task: {
+          patientId: t.patient.id,
+          patientName: t.patient.name,
+          taskId: t.task.id,
+          label: t.task.label,
+          dueAt: t.dueAt,
+        },
+      });
+    }
+    announced = kept;
+    fresh.sort((a, b) => a.ms - b.ms);
+    for (const f of fresh) {
+      if (f.first) {
+        dispatch({ type: 'DUE', patientId: f.task.patientId, taskId: f.task.taskId, now });
       }
     }
-    notified = kept;
-    const due = fresh.sort((a, b) => a.ms - b.ms).map((f) => f.task);
-    for (const d of due) {
-      dispatch({ type: 'DUE', patientId: d.patientId, taskId: d.taskId, now });
-    }
-    if (due.length > 0) {
-      notifier.due(due);
+    if (fresh.length > 0) {
+      notifier.due(fresh.map((f) => f.task));
     }
   };
 
-  /** Drops stale `notified` entries and returns the earliest dueAt still awaiting announcement. */
+  /** Drops stale `announced` entries and returns the moment the next announcement is wanted. */
   const prune = (): number | undefined => {
-    const kept = new Map<string, Iso>();
+    const kept = new Map<string, Announcement>();
     let best: number | undefined;
     for (const t of timedTodo(getPatients())) {
-      if (isAnnounced(t)) {
-        kept.set(t.task.id, t.dueAt);
-      } else if (best === undefined || t.ms < best) {
-        best = t.ms;
+      const a = current(t);
+      const at = a === undefined ? t.ms : a.announcedAt + REPEAT_MS;
+      if (a !== undefined) {
+        kept.set(t.task.id, a);
+      }
+      if (best === undefined || at < best) {
+        best = at;
       }
     }
-    notified = kept;
+    announced = kept;
     return best;
   };
 

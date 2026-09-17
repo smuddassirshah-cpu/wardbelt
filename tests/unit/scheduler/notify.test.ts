@@ -150,7 +150,7 @@ describe('createNotifier: permission state', () => {
 });
 
 describe('createNotifier: due', () => {
-  it('vibrates then shows a notification with the exact title, body, tag and renotify', async () => {
+  it('vibrates, sounds, then shows a notification with the exact title, body, tag, renotify, vibrate and silent', async () => {
     const perm = fakePermission('granted');
     const reg = fakeRegistration();
     const order: string[] = [];
@@ -159,6 +159,9 @@ describe('createNotifier: due', () => {
       vibrate: (p) => {
         order.push(`vibrate:${JSON.stringify(p)}`);
         return true;
+      },
+      sound: () => {
+        order.push('sound');
       },
       getRegistration: () => {
         order.push('registration');
@@ -173,9 +176,15 @@ describe('createNotifier: due', () => {
       body: 'Fixture Animal 1: Post-op check 1\nFixture Animal 2: Post-op check 2',
       tag: DUE_TAG,
       renotify: true,
+      vibrate: [...DUE_VIBRATION],
+      silent: false,
     });
     expect(DUE_TAG).toBe('wardbelt-due');
-    expect(order).toEqual([`vibrate:${JSON.stringify([...DUE_VIBRATION])}`, 'registration']);
+    expect(order).toEqual([
+      `vibrate:${JSON.stringify([...DUE_VIBRATION])}`,
+      'sound',
+      'registration',
+    ]);
     expect(reg.calls).toHaveLength(1);
   });
 
@@ -196,9 +205,13 @@ describe('createNotifier: due', () => {
     const perm = fakePermission('granted');
     const reg = fakeRegistration();
     const vibrations: (number | number[])[] = [];
+    let sounds = 0;
     const n = createNotifier({
       notification: perm.notification,
       getRegistration: reg.getRegistration,
+      sound: () => {
+        sounds += 1;
+      },
       vibrate: (p) => {
         vibrations.push(p);
         return true;
@@ -207,6 +220,7 @@ describe('createNotifier: due', () => {
     n.due([]);
     expect(vibrations).toEqual([]);
     expect(reg.calls).toEqual([]);
+    expect(sounds).toBe(0);
   });
 
   it('routes a missing registration to onError', async () => {
@@ -319,6 +333,7 @@ describe('browserNotifyDeps', () => {
   it('feature-detects without throwing in jsdom', () => {
     const deps = browserNotifyDeps();
     expect(deps.onError).toBeUndefined();
+    expect(deps.sound).toBeUndefined();
     const n = createNotifier(deps);
     expect(['granted', 'denied', 'default', 'unsupported']).toContain(n.state());
     expect(() => {
@@ -377,5 +392,80 @@ describe('browserNotifyDeps', () => {
     expect(fakeNotification.prompts).toBe(1);
     expect(n.state()).toBe('granted');
     await expect(deps.getRegistration?.()).resolves.toBe(registration);
+  });
+});
+
+describe('createNotifier: sound', () => {
+  it('plays in every permission state, before the permission check', () => {
+    const played: string[] = [];
+    for (const [label, notification] of [
+      ['granted', fakePermission('granted').notification],
+      ['denied', fakePermission('denied').notification],
+      ['default', fakePermission('default').notification],
+      ['unsupported', undefined],
+    ] as const) {
+      const n = createNotifier({
+        notification,
+        sound: () => {
+          played.push(label);
+        },
+      });
+      n.due([task(1)]);
+    }
+    expect(played).toEqual(['granted', 'denied', 'default', 'unsupported']);
+  });
+
+  it('is optional and plays once per batch', () => {
+    const bare = createNotifier({ notification: fakePermission('denied').notification });
+    expect(() => {
+      bare.due([task(1)]);
+    }).not.toThrow();
+    let sounds = 0;
+    const n = createNotifier({
+      notification: fakePermission('denied').notification,
+      sound: () => {
+        sounds += 1;
+      },
+    });
+    n.due([task(1), task(2), task(3)]);
+    n.due([task(1)]);
+    expect(sounds).toBe(2);
+  });
+
+  it('routes a throwing sound to onError and still vibrates and notifies', async () => {
+    const reg = fakeRegistration();
+    const errors: string[] = [];
+    const vibrations: (number | number[])[] = [];
+    const n = createNotifier({
+      notification: fakePermission('granted').notification,
+      getRegistration: reg.getRegistration,
+      vibrate: (p) => {
+        vibrations.push(p);
+        return true;
+      },
+      sound: () => {
+        throw new Error('audio context blocked');
+      },
+      onError: (r) => errors.push(r),
+    });
+    expect(() => {
+      n.due([task(1)]);
+    }).not.toThrow();
+    expect(errors).toEqual(['Could not play the due tone: audio context blocked']);
+    expect(vibrations).toEqual([[...DUE_VIBRATION]]);
+    await reg.shown.promise;
+    expect(reg.calls).toHaveLength(1);
+  });
+
+  it('describes a throw with no message plainly', () => {
+    const errors: string[] = [];
+    const n = createNotifier({
+      sound: () => {
+        throw new Error('');
+      },
+      onError: (r) => errors.push(r),
+    });
+    n.due([task(1)]);
+    expect(errors).toEqual(['Could not play the due tone']);
   });
 });
