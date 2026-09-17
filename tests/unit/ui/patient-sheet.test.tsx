@@ -1,9 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PatientSheet, type PatientSheetProps } from '../../../src/ui/PatientSheet';
+import { BOOKING_ERROR, PatientSheet, type PatientSheetProps } from '../../../src/ui/PatientSheet';
 import { CONFIRM_WINDOW_MS } from '../../../src/ui/ConfirmButton';
 import { templateTaskId, type Patient } from '../../../src/domain/types';
-import { toDatetimeLocal } from '../../../src/ui/format';
+import { formatClock, toDatetimeLocal } from '../../../src/ui/format';
 import {
   FIXED_NOW_ISO,
   FIXED_NOW_MS,
@@ -24,6 +24,8 @@ function handlers() {
     onAddTask: vi.fn(),
     onSetNote: vi.fn(),
     onSetTheatreReturn: vi.fn(),
+    onSetIntake: vi.fn(),
+    onBookDischarge: vi.fn(),
     onDischarge: vi.fn(),
     onDelete: vi.fn(),
     onClose: vi.fn(),
@@ -46,17 +48,19 @@ function mount(patient: Patient, extra: Partial<PatientSheetProps> = {}) {
 }
 
 describe('PatientSheet', () => {
-  it('lists every task with code, label, status and time', () => {
+  it('lists every task with its icon, label, status and time', () => {
     const p = patientRecovery();
     const { container } = mount(p);
     expect(screen.getByRole('dialog', { name: 'Fixture Dog One' })).toBeTruthy();
     const items = container.querySelectorAll('li.task');
-    expect(items).toHaveLength(19);
+    expect(items).toHaveLength(18);
     const first = items[0];
-    expect(first?.querySelector('.belt__square--done')?.textContent).toBe('HA');
+    expect(first?.querySelector('.belt__square--done svg')?.getAttribute('data-icon')).toBe(
+      'handover_admit',
+    );
     expect(first?.textContent).toContain('Handover and admit');
     expect(first?.textContent).toContain('Done');
-    const check1 = items[7];
+    const check1 = items[6];
     expect(check1?.querySelector('.belt__square--current.belt__square--overdue')).not.toBeNull();
     const due = toDatetimeLocal(isoPlus(FIXED_NOW_ISO, -5)).slice(11);
     expect(check1?.textContent).toContain(`Due ${due}`);
@@ -102,6 +106,8 @@ describe('PatientSheet', () => {
         onAddTask={onAddTask}
         onSetNote={onSetNote}
         onSetTheatreReturn={onSetTheatreReturn}
+        onSetIntake={vi.fn()}
+        onBookDischarge={vi.fn()}
         onDischarge={onDischarge}
         onDelete={onDelete}
         onClose={onClose}
@@ -217,6 +223,108 @@ describe('PatientSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save theatre return' }));
     expect(onSetTheatreReturn).toHaveBeenCalledWith(isoPlus(FIXED_NOW_ISO, -10));
     expect(input.getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('caps every note field at 1000 characters', () => {
+    const p = patientWithCustomTask();
+    const { container } = mount(p);
+    const notes = screen.getByLabelText<HTMLTextAreaElement>('Patient notes');
+    expect(notes.maxLength).toBe(1000);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit note for Bandage check' }));
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Note for Bandage check').maxLength).toBe(
+      1000,
+    );
+    expect(container.querySelectorAll('textarea[maxlength="1000"]').length).toBe(2);
+  });
+
+  it('saves an intake time, a cleared one, and shows the validator message', () => {
+    const p = patientRecovery();
+    const { onSetIntake } = mount(p);
+    const intake = screen.getByLabelText<HTMLInputElement>(/^Intake time/);
+    expect(intake.value).toBe('08:00');
+    fireEvent.click(screen.getByRole('button', { name: '10:00' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save intake' }));
+    expect(onSetIntake).toHaveBeenLastCalledWith('10:00');
+    fireEvent.click(screen.getByRole('button', { name: 'No set time' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save intake' }));
+    expect(onSetIntake).toHaveBeenLastCalledWith('none');
+    // A time input sanitises anything that is not HH:MM to '', in jsdom as in the browser, so
+    // the validator's guard is forced here rather than typed.
+    Object.defineProperty(intake, 'value', { value: '25:00', configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Save intake' }));
+    expect(onSetIntake).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Enter a time as HH:MM, or none')).toBeTruthy();
+    expect(intake.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('refuses a half-typed intake instead of silently clearing it', () => {
+    const p = patientRecovery();
+    const { onSetIntake } = mount(p);
+    const intake = screen.getByLabelText<HTMLInputElement>(/^Intake time/);
+    // A time input sanitises a partial entry ("09:" say) to '', and only validity.badInput tells
+    // that apart from a box the nurse cleared on purpose.
+    Object.defineProperty(intake, 'validity', { value: { badInput: true }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Save intake' }));
+    expect(onSetIntake).not.toHaveBeenCalled();
+    expect(screen.getByText('Enter a time as HH:MM, or none')).toBeTruthy();
+    expect(intake.getAttribute('aria-invalid')).toBe('true');
+
+    Object.defineProperty(intake, 'validity', { value: { badInput: false }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'No set time' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save intake' }));
+    expect(onSetIntake).toHaveBeenCalledWith('none');
+  });
+
+  it('does not offer the intake edit on a discharged patient', () => {
+    mount(patientDischarged(), { currentTaskId: undefined });
+    expect(screen.queryByLabelText(/^Intake time/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save intake' })).toBeNull();
+  });
+
+  it('books a collection time as today at that hour, and clears it', () => {
+    const p = patientRecovery();
+    const { onBookDischarge, ...rest } = mount(p);
+    fireEvent.click(screen.getByRole('button', { name: 'Book discharge' }));
+    const field = screen.getByLabelText<HTMLInputElement>('Collection time');
+    expect(field.value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Save booking' }));
+    expect(onBookDischarge).not.toHaveBeenCalled();
+    expect(screen.getByText(BOOKING_ERROR)).toBeTruthy();
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+
+    fireEvent.input(field, { target: { value: '15:30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save booking' }));
+    const booked = onBookDischarge.mock.calls[0]?.[0] as string;
+    expect(booked).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:00\.000Z$/);
+    const at = new Date(booked);
+    expect([at.getHours(), at.getMinutes(), at.getSeconds()]).toEqual([15, 30, 0]);
+    const today = new Date(FIXED_NOW_MS);
+    expect(at.toDateString()).toBe(today.toDateString());
+    expect(screen.queryByLabelText('Collection time')).toBeNull();
+
+    cleanup();
+    const withBooking = { ...p, dischargeBookedAt: booked };
+    const second = mount(withBooking);
+    expect(screen.getByText('Booked for')).toBeTruthy();
+    expect(screen.getByText(formatClock(booked))).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Book discharge' }));
+    expect(screen.getByLabelText<HTMLInputElement>('Collection time').value).toBe(
+      formatClock(booked),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Clear booking' }));
+    expect(second.onBookDischarge).toHaveBeenCalledWith(undefined);
+    expect(rest.onDischarge).not.toHaveBeenCalled();
+  });
+
+  it('offers no booking controls once discharged but keeps the booked time', () => {
+    const done = { ...patientDischarged(), dischargeBookedAt: FIXED_NOW_ISO };
+    mount(done, { currentTaskId: undefined });
+    expect(screen.getByText('Booked for')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Book discharge' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Clear booking' })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Discharged / }).hasAttribute('disabled')).toBe(
+      true,
+    );
   });
 
   it('discharges, and shows the discharge time once discharged', () => {

@@ -13,7 +13,7 @@ import { resolve } from 'node:path';
 import { format, resolveConfig } from 'prettier';
 import {
   addPatient,
-  completeThroughTheatre,
+  completeThroughHandover,
   openSheet,
   ready,
   row,
@@ -101,12 +101,15 @@ async function boardWithData(page: Page, theme: string, info: TestInfo): Promise
   await ready(page);
   await addPatient(page, 'Fixture Nu', 'Dental', { species: 'Cat', intake: '10:00' });
   await addPatient(page, 'Fixture Xi', 'Spay');
-  await completeThroughTheatre(page, 'Fixture Xi');
+  await completeThroughHandover(page, 'Fixture Xi');
   await page.clock.fastForward(16 * 60_000);
   const late = row(page, 'Fixture Xi');
-  await expect(late.locator('.chip--danger')).toHaveText(/C1 overdue/);
+  await expect(late.locator('.chip--danger')).toHaveText(/\soverdue/);
+  await expect(late.locator('.chip--danger .visually-hidden')).toHaveText('Post-op check 1');
   await expect(late.locator('.belt__square--overdue')).toHaveCount(1);
   await expect(row(page, 'Fixture Nu').getByText('10:00')).toBeVisible();
+  await expect(late.locator('.belt__square svg[data-icon]')).toHaveCount(18);
+  await expect(late.locator('.row__meta > .chip')).toHaveText('Status Recovery');
 
   const board = await audit(page, 'board with an intake chip and an overdue check');
   expect(board.result.violationIds).toEqual([]);

@@ -268,6 +268,7 @@ fieldset.field legend {
 .chip {
   display: inline-flex;
   align-items: center;
+  flex: none;
   height: var(--chip-height);
   padding: 0 var(--space-2);
   font-size: var(--text-xs);
@@ -276,6 +277,13 @@ fieldset.field legend {
   color: var(--colour-ink);
   white-space: nowrap;
   border: var(--hairline) solid var(--colour-hairline);
+}
+
+/* The timer chip's step icon, beside the countdown. */
+.chip__glyph {
+  display: flex;
+  flex: none;
+  align-items: center;
 }
 
 .chip--accent {
@@ -291,6 +299,14 @@ fieldset.field legend {
 .chip--danger {
   color: var(--colour-danger);
   border-color: var(--colour-danger);
+}
+
+/* Inline step icons: 16 px on the 24 px cell, inheriting the cell's colour */
+.icon {
+  display: block;
+  flex: none;
+  width: var(--icon);
+  height: var(--icon);
 }
 
 /* Belt */
@@ -423,8 +439,9 @@ fieldset.field legend {
   position: relative;
   z-index: 1;
   display: flex;
-  gap: var(--space-2);
-  align-items: center;
+  flex-direction: column;
+  gap: var(--space-1);
+  justify-content: center;
   width: 100%;
   height: var(--target);
   padding: 0;
@@ -436,20 +453,36 @@ fieldset.field legend {
   -webkit-tap-highlight-color: transparent;
 }
 
-.row__main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.row__title {
+/* Two independent lines, each spending its own width: the name and the countdown on the first,
+   everything else on the second. Both are 20 px, so the header stays 48 px and the row 88 px. */
+.row__title,
+.row__meta {
   display: flex;
   gap: var(--space-2);
-  align-items: baseline;
+  align-items: center;
+  width: 100%;
   min-width: 0;
+  height: var(--chip-height);
   line-height: 1.3;
 }
 
+/* Chips keep their content width; the name and the procedure are the only text that gives way.
+   The countdown and the intake and collection chips sit at the end of their line; the ward
+   status chip stays beside the species, where the eye looks for it. */
+.row__title > .chip,
+.row__meta > .chip,
+.row__side {
+  flex: none;
+}
+
+.row__title > .chip,
+.row__side {
+  margin-left: auto;
+}
+
 .row__name {
+  flex: 0 1 auto;
+  min-width: 3ch;
   overflow: hidden;
   font-size: var(--text-md);
   font-weight: var(--weight-semibold);
@@ -458,17 +491,21 @@ fieldset.field legend {
 }
 
 .row__species {
+  flex: none;
   font-size: var(--text-sm);
   color: var(--colour-ink-muted);
 }
 
 .row__kennel {
+  flex: none;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
 .row__procedure {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   font-size: var(--text-sm);
   line-height: 1.3;
@@ -477,12 +514,11 @@ fieldset.field legend {
   white-space: nowrap;
 }
 
+/* Intake and the booked collection time, at the end of the second line. */
 .row__side {
   display: flex;
-  flex: none;
-  flex-direction: column;
   gap: var(--space-1);
-  align-items: flex-end;
+  align-items: center;
 }
 
 .row__belt {

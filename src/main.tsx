@@ -2,7 +2,8 @@
 // sit in the main bundle. Everything else builds one Session over the browser platform
 // (real clock, IndexedDB repo, BroadcastChannel lock, vite-plugin-pwa registration, download
 // anchor) and renders the App before boot finishes so the shell paints at once; start() then
-// decides the tab role, hydrates and arms the scheduler. A boot failure that escapes the
+// decides the tab role, hydrates and arms the scheduler. `pagehide` stops the session, so a
+// discarded page releases the screen wake lock and its timer. A boot failure that escapes the
 // session's own fallbacks is rendered as an alert, never swallowed.
 import { render } from 'preact';
 import { registerSW } from 'virtual:pwa-register';
@@ -71,6 +72,9 @@ if (location.hash.startsWith('#/dev')) {
           fn();
         }
       });
+    },
+    onPageHide: (fn) => {
+      window.addEventListener('pagehide', fn);
     },
     download: downloadText,
     reducedMotion: prefersReducedMotion,

@@ -1,10 +1,19 @@
-// Decision notes: builds stamped Action objects; nothing here dispatches. The discharge button
+// Decision notes: builds stamped Action objects; nothing here dispatches. A booking with no time
+// omits `bookedAt` rather than sending undefined, so the reducer clears it. The discharge button
 // goes through COMPLETE_TASK on the patient's discharge task while that task is still to do
 // (undoable, counted in stats) and falls back to DISCHARGE only when the task was skipped
 // (STATE.md stage 1 verifier note). Patient and custom task ids come from the same IdSource as
 // event ids.
 import type { CustomTaskInput } from '@domain/validate';
-import type { Action, Iso, Patient, PatientForm, Settings, TransferFile } from '@domain/types';
+import type {
+  Action,
+  Intake,
+  Iso,
+  Patient,
+  PatientForm,
+  Settings,
+  TransferFile,
+} from '@domain/types';
 import type { IdSource } from './ids';
 
 type ActionOf<T extends Action['type']> = Extract<Action, { type: T }>;
@@ -16,6 +25,8 @@ export interface ActionFactory {
   undo(patientId: string): Action;
   addTask(patientId: string, input: CustomTaskInput, afterTaskId?: string): Action;
   setTheatreReturn(patientId: string, returnedAt: Iso): Action;
+  setIntake(patientId: string, intake: Intake): Action;
+  bookDischarge(patientId: string, bookedAt: Iso | undefined): Action;
   discharge(patient: Patient): Action;
   deletePatient(patientId: string): Action;
   setNote(patientId: string, taskId: string | undefined, note: string): Action;
@@ -66,6 +77,18 @@ export function createActionFactory(ids: IdSource): ActionFactory {
       returnedAt,
       ...ids.stamp(),
     }),
+    setIntake: (patientId, intake) => ({ type: 'SET_INTAKE', patientId, intake }),
+    bookDischarge: (patientId, bookedAt) => {
+      const action: ActionOf<'BOOK_DISCHARGE'> = {
+        type: 'BOOK_DISCHARGE',
+        patientId,
+        ...ids.stamp(),
+      };
+      if (bookedAt !== undefined) {
+        action.bookedAt = bookedAt;
+      }
+      return action;
+    },
     discharge: (patient) => {
       const task = patient.tasks.find((t) => t.key === 'discharge');
       if (task?.status === 'todo') {

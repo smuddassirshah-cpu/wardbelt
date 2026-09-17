@@ -1,18 +1,13 @@
-// Decision notes: one pass over the tasks builds the phase groups (tasks arrive in order and a
-// custom task carries the phase of its neighbour, so groups are contiguous). Only the current
+// Decision notes: template cells carry the step's line icon and custom cells keep the
+// two-letter code (CHANGES-2026-09.md section 5). One pass over the tasks builds the phase
+// groups (tasks arrive in order and a custom task carries the phase of its neighbour, so the
+// groups are contiguous). Only the current
 // cell is a button; the other cells are aria-hidden spans and the belt itself carries a
 // summary label. A belt with nothing left to do has no button, so the scroller becomes
 // focusable itself to satisfy WCAG 2.1.1 for keyboard scrolling.
 import { type Task } from '@domain/types';
-import {
-  cellClass,
-  cellState,
-  classes,
-  isOverdue,
-  progressOf,
-  taskCode,
-  type CellState,
-} from './format';
+import { cellClass, cellState, classes, isOverdue, progressOf, type CellState } from './format';
+import { TaskGlyph } from './icons';
 
 export interface BeltProps {
   tasks: readonly Task[];
@@ -87,12 +82,12 @@ export function Belt({
                 onClick={onTapCurrent}
               >
                 <span class={cellClass(state, overdue)} aria-hidden="true">
-                  {taskCode(task)}
+                  <TaskGlyph task={task} />
                 </span>
               </button>
             ) : (
               <span class={cellClass(state, overdue)} key={task.id} aria-hidden="true">
-                {taskCode(task)}
+                <TaskGlyph task={task} />
               </span>
             ),
           )}

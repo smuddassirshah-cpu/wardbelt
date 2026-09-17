@@ -27,9 +27,9 @@ describe('DevGallery', () => {
       expect(section, id).not.toBeNull();
       expect(section?.querySelector('h2')?.textContent, id).toBeTruthy();
     }
-    expect(container.querySelectorAll('#belt .belt')).toHaveLength(6);
-    expect(container.querySelectorAll('#rows .row')).toHaveLength(6);
-    expect(container.querySelectorAll('#sheet [role="dialog"]')).toHaveLength(4);
+    expect(container.querySelectorAll('#belt .belt')).toHaveLength(7);
+    expect(container.querySelectorAll('#rows .row')).toHaveLength(7);
+    expect(container.querySelectorAll('#sheet [role="dialog"]')).toHaveLength(5);
     expect(container.querySelectorAll('#admit [role="dialog"]')).toHaveLength(3);
     expect(container.querySelectorAll('#admit .field__error').length).toBeGreaterThanOrEqual(2);
     expect(container.querySelectorAll('#summary [role="dialog"]')).toHaveLength(2);
@@ -38,6 +38,13 @@ describe('DevGallery', () => {
     expect(container.querySelectorAll('#toast [role="status"]')).toHaveLength(2);
     expect(container.querySelectorAll('.belt__square--overdue').length).toBeGreaterThan(0);
     expect(container.querySelectorAll('.belt__square--skipped').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('#belt .belt__square svg[data-icon]').length).toBe(7 * 18);
+    expect(container.querySelectorAll('#rows .row__meta > .chip').length).toBe(6);
+    const homeChips = Array.from(container.querySelectorAll('#rows .row__side .chip')).filter((c) =>
+      c.textContent.startsWith('Home'),
+    );
+    expect(homeChips).toHaveLength(2);
+    expect(homeChips.filter((c) => c.classList.contains('chip--warning'))).toHaveLength(1);
     expect(
       screen.getByText('Not saving: storage unavailable', { selector: '.summary-line' }),
     ).toBeTruthy();
@@ -59,6 +66,11 @@ describe('DevGallery', () => {
     expect(
       Array.from(container.querySelectorAll('#sheet button')).filter(
         (b) => b.textContent === 'Discharge',
+      ),
+    ).toHaveLength(4);
+    expect(
+      Array.from(container.querySelectorAll('#sheet .summary-line')).filter((p) =>
+        p.textContent.startsWith('Booked for'),
       ),
     ).toHaveLength(3);
   });

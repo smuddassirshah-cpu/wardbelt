@@ -109,7 +109,7 @@ test('exports, wipes, and imports back to identical state; rejects a malformed f
   await closeSheet(sheet);
   const before = await belts(page);
   expect(Object.keys(before).sort()).toEqual(['Fixture Delta', 'Fixture Epsilon']);
-  expect(before['Fixture Delta']?.label).toBe('2 of 19 done, current: Draw up meds');
+  expect(before['Fixture Delta']?.label).toBe('2 of 18 done, current: Draw up meds');
   await waitForStore(page, (s) => s.patients.length === 2 && s.events.length === 5);
 
   const settings = await openSettings(page);
@@ -301,7 +301,8 @@ test('settings persist across reload and the weekly export nudge appears until e
   } else {
     await notifications.check();
   }
-  await settings.getByRole('checkbox', { name: /Click on completion/ }).check();
+  await settings.getByRole('checkbox', { name: /^Sound/ }).check();
+  await settings.getByRole('checkbox', { name: /^Keep screen on/ }).check();
   await settings.getByRole('checkbox', { name: /Show owner phone field/ }).check();
   await settings.getByText('Dark', { exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -315,6 +316,7 @@ test('settings persist across reload and the weekly export nudge appears until e
       s.settings.some((r) => r.key === 'purgeDays' && r.value === 14) &&
       s.settings.some((r) => r.key === 'theme' && r.value === 'dark') &&
       s.settings.some((r) => r.key === 'sound' && r.value === true) &&
+      s.settings.some((r) => r.key === 'keepScreenOn' && r.value === true) &&
       s.settings.some((r) => r.key === 'showOwnerPhone' && r.value === true) &&
       s.settings.some((r) => r.key === 'notifications' && r.value === !blocked),
   );
@@ -327,7 +329,8 @@ test('settings persist across reload and the weekly export nudge appears until e
   if (!blocked) {
     await expect(reopened.getByRole('checkbox', { name: /Notifications/ })).toBeChecked();
   }
-  await expect(reopened.getByRole('checkbox', { name: /Click on completion/ })).toBeChecked();
+  await expect(reopened.getByRole('checkbox', { name: /^Sound/ })).toBeChecked();
+  await expect(reopened.getByRole('checkbox', { name: /^Keep screen on/ })).toBeChecked();
   await expect(reopened.getByRole('checkbox', { name: /Show owner phone field/ })).toBeChecked();
   await expect(reopened.getByRole('radio', { name: 'Dark' })).toBeChecked();
   await expect(reopened.getByLabel('Keep discharged patients for (days)')).toHaveValue('14');

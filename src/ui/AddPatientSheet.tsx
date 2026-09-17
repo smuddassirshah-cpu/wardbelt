@@ -1,14 +1,27 @@
 // Decision notes: the admission form (PLAN.md section 7 fields). Inputs are uncontrolled and
 // read with FormData at submit, then validated once with validatePatientForm; the sheet shows
-// the validator's messages inline and hands the normalised form up. Species, sex and intake
-// are segmented radio groups with the defaults preselected (dog, unknown, none) so a typical
-// admission is name, procedure and Add. `initialErrors` lets the gallery show the error state.
-import { SEXES, SPECIES, INTAKES, type PatientForm, type Sex } from '@domain/types';
-import { validatePatientForm, type FieldErrors } from '@domain/validate';
+// the validator's messages inline and hands the normalised form up. Species and sex are
+// segmented radio groups with the defaults preselected (dog, unknown) so a typical admission is
+// name, procedure and Add. Intake is any local HH:MM through a time input, with the three
+// presets and "No set time" writing straight into it; an empty box submits 'none', while a half
+// typed one is rejected rather than read as "no set time" (CHANGES-2026-09.md section 5). The patient sheet reuses `IntakeField` so the admission and
+// the later edit cannot drift apart. `initialErrors` lets the gallery show the error state.
+import {
+  INTAKE_NONE,
+  INTAKE_PRESETS,
+  SEXES,
+  SPECIES,
+  type PatientForm,
+  type Sex,
+} from '@domain/types';
+import { NOTES_MAX, validatePatientForm, type FieldErrors } from '@domain/validate';
 import { type RefObject } from 'preact';
 import { useId, useRef, useState } from 'preact/hooks';
 import { Sheet } from './Sheet';
 import { SPECIES_LABEL } from './format';
+
+export const NO_INTAKE_LABEL = 'No set time';
+export const INTAKE_LABEL = 'Intake time';
 
 export interface AddPatientSheetProps {
   showOwnerPhone: boolean;
@@ -76,6 +89,95 @@ function TextField(p: TextFieldProps) {
   );
 }
 
+export interface IntakeFieldProps {
+  id: string;
+  /** The current value as HH:MM, or '' for no set time. */
+  defaultValue: string;
+  error: string | undefined;
+  inputRef: RefObject<HTMLInputElement>;
+}
+
+/** Any local HH:MM, with the presets and "No set time" writing into the same uncontrolled box. */
+export function IntakeField(p: IntakeFieldProps) {
+  const errorId = `${p.id}-error`;
+  const set = (value: string) => {
+    const el = p.inputRef.current;
+    if (el !== null) {
+      el.value = value;
+    }
+  };
+  return (
+    <div class="field">
+      <label class="field__label" for={p.id}>
+        {INTAKE_LABEL}
+        <span class="muted"> (optional)</span>
+      </label>
+      <input
+        id={p.id}
+        name="intake"
+        ref={p.inputRef}
+        class="field__input mono"
+        type="time"
+        defaultValue={p.defaultValue}
+        aria-invalid={p.error !== undefined ? 'true' : undefined}
+        aria-describedby={p.error !== undefined ? errorId : undefined}
+      />
+      <div class="btn-row">
+        {INTAKE_PRESETS.map((t) => (
+          <button
+            type="button"
+            class="btn"
+            key={t}
+            onClick={() => {
+              set(t);
+            }}
+          >
+            {t}
+          </button>
+        ))}
+        <button
+          type="button"
+          class="btn"
+          onClick={() => {
+            set('');
+          }}
+        >
+          {NO_INTAKE_LABEL}
+        </button>
+      </div>
+      {p.error !== undefined && (
+        <p class="field__error" id={errorId}>
+          {p.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** An empty box means no set time; anything else goes to the validator as typed. */
+export function intakeValue(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  return s === '' ? INTAKE_NONE : s;
+}
+
+/**
+ * A time input hands back '' for a box the nurse cleared and for one she half typed alike, and
+ * only `validity.badInput` tells the two apart. Undefined means the entry is incomplete, so it
+ * must not be read as "no set time" and nothing may be dispatched for it.
+ */
+export function readIntake(input: HTMLInputElement | null): string | undefined {
+  if (input === null || input.validity.badInput) {
+    return undefined;
+  }
+  return intakeValue(input.value);
+}
+
+/** The validator owns the intake rule and its wording; only its intake message is read here. */
+export function intakeError(value: string): string | undefined {
+  const result = validatePatientForm({ intake: value });
+  return result.ok ? undefined : result.errors.intake;
+}
+
 interface ChoiceFieldProps<T extends string> {
   id: string;
   name: keyof PatientForm;
@@ -128,6 +230,7 @@ export function AddPatientSheet({
   const id = useId();
   const form = useRef<HTMLFormElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
+  const intakeInput = useRef<HTMLInputElement>(null);
   const [errors, setErrors] = useState<FieldErrors>(initialErrors ?? {});
 
   const submit = (e: Event) => {
@@ -140,6 +243,9 @@ export function AddPatientSheet({
     new FormData(el).forEach((value, key) => {
       raw[key] = value;
     });
+    // An incomplete time reaches the validator as '', which fails with the same message a bad
+    // one does, so a half-typed entry can never be saved as "no set time".
+    raw.intake = readIntake(intakeInput.current) ?? '';
     const result = validatePatientForm(raw);
     if (!result.ok) {
       setErrors(result.errors);
@@ -183,14 +289,11 @@ export function AddPatientSheet({
           maxLength={80}
           required
         />
-        <ChoiceField
+        <IntakeField
           id={`${id}-intake`}
-          name="intake"
-          legend="Intake slot"
-          options={INTAKES}
-          labels={(v) => (v === 'none' ? 'None' : v)}
-          defaultValue="none"
+          defaultValue=""
           error={errors.intake}
+          inputRef={intakeInput}
         />
         <TextField
           id={`${id}-kennel`}
@@ -241,7 +344,7 @@ export function AddPatientSheet({
           name="notes"
           label="Notes"
           error={errors.notes}
-          maxLength={500}
+          maxLength={NOTES_MAX}
           multiline
         />
         <div class="btn-row">

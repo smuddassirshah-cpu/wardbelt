@@ -5,14 +5,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Locator, type Page } from '@playwright/test';
 
-export const PRE_THEATRE = [
-  'Handover and admit',
-  'Bloods',
-  'Draw up meds',
-  'Premed',
-  'To theatre',
-  'In theatre',
-];
+export const PRE_THEATRE = ['Handover and admit', 'Bloods', 'Draw up meds', 'Premed', 'In theatre'];
 export const CHECK_OFFSETS = [15, 30, 45, 60];
 
 export interface RawStore {
@@ -74,6 +67,12 @@ export async function completeThroughTheatre(page: Page, name: string): Promise<
   }
 }
 
+/** Completing the theatre handover is what records the return time and schedules the checks. */
+export async function completeThroughHandover(page: Page, name: string): Promise<void> {
+  await completeThroughTheatre(page, name);
+  await completeCurrent(row(page, name), 'Handover from theatre');
+}
+
 export async function openSheet(page: Page, name: string): Promise<Locator> {
   await row(page, name)
     .getByRole('button', { name: new RegExp(`^${name}`) })
@@ -99,6 +98,16 @@ export async function openSettings(page: Page): Promise<Locator> {
 export async function closeSheet(sheet: Locator): Promise<void> {
   await sheet.getByRole('button', { name: 'Close' }).click();
   await expect(sheet).toBeHidden();
+}
+
+/** Books a collection time through the patient sheet, then closes the sheet. */
+export async function bookDischarge(page: Page, name: string, time: string): Promise<void> {
+  const sheet = await openSheet(page, name);
+  await sheet.getByRole('button', { name: 'Book discharge' }).click();
+  await sheet.getByLabel('Collection time').fill(time);
+  await sheet.getByRole('button', { name: 'Save booking' }).click();
+  await expect(sheet.getByText(`Booked for ${time}`)).toBeVisible();
+  await closeSheet(sheet);
 }
 
 /** Discharges through the patient sheet's button, then closes the sheet. */

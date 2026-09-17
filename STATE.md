@@ -901,3 +901,213 @@ lint and prettier clean; typecheck clean; `Test Files 43 passed (43)`, `Tests 51
 97.21% (1258/1294), functions 98.47% (515/523), lines 99.35% (1862/1874), with all four
 `src/scheduler` modules still at 100% on every metric; build byte-identical to the first round
 (`index-DqKuzSBK.js` 93.99 kB gzip 32.54 kB, `sw.mjs` 17.07 kB, precache 13 entries 126.04 KiB).
+
+### Post field test WP C: UI, service worker, e2e, README (implementing subagent, 2026-09-17)
+
+Branch `change/c-ui`, worktree `/home/user/wardbelt-wt/c`, from the integration branch with WP A
+and WP B merged. Scope: CHANGES-2026-09.md section 5. Files touched: `src/ui/**` (including the
+new `src/ui/icons.tsx`), `tests/unit/{ui,app,hardening}`, `tests/e2e/**`, `README.md`,
+`docs/screenshots/*.png`. Nothing in `src/domain`, `src/store`, `src/scheduler`, `tests/fixtures`
+or `docs/PLAN.md` was changed, and `src/sw.ts` needed no change.
+
+**Built**
+
+- `src/ui/icons.tsx` (new): one inline SVG line icon per template step on a 16 x 16 grid,
+  `stroke="currentColor"`, `fill="none"`, stroke 1.5, round joins, `aria-hidden`, each carrying
+  `data-icon="<step key>"` so tests and the gallery can name them. `TaskIcon` draws one step;
+  `TaskGlyph` picks the icon for a template task and the two-letter code for a custom one. The
+  mapping is the one in section 5; the four checks are a stethoscope with a bold digit.
+- `src/ui/Belt.tsx` and the patient sheet's task rows render `TaskGlyph`, so every belt cell in
+  the app draws the icon and custom cells keep their letters. `taskCode` stays for custom cells
+  and the shift summary. The done cell keeps a white glyph because the icon inherits
+  `currentColor` from `.belt__square--done`.
+- `src/ui/PatientRow.tsx`: neutral `Chip` after the name and species from `wardStatus(patient)`
+  with a visually-hidden `Status ` prefix and nothing once discharged; timer chip now names the
+  task in full with the visually-hidden duplicate dropped; a mono `Home HH:MM` chip after the
+  intake chip while a booking exists and the patient is active, in the warning tone once the
+  booked time has passed.
+- `src/ui/PatientSheet.tsx`: section "Discharge" gains `Booked for HH:MM`, a `Book discharge`
+  button that opens a `type="time"` field with `Save booking` and, when a booking exists,
+  `Clear booking`. The saved value is today's local date at that time through
+  `new Date(...).toISOString()`. The existing Discharge button and its disabled
+  `Discharged HH:MM` state are untouched. New "Intake" section with the shared intake control and
+  `Save intake`, offered on active patients only. All three note textareas cap at
+  `NOTES_MAX` (1000) imported from the validator.
+- `src/ui/AddPatientSheet.tsx`: the intake radio group is replaced by `IntakeField`, a
+  `type="time"` box with the three `INTAKE_PRESETS` as 48 px quick picks and a `No set time`
+  control; `intakeValue` trims the box and maps an empty one to `'none'` before validation. The
+  control and the trim are exported and reused by the patient sheet.
+- `src/ui/feedback.ts`: `dueTone(opts)` plays 880 Hz and 660 Hz for 150 ms with an 80 ms gap on
+  the existing lazy AudioContext, scheduled on the context clock rather than with timers; silent
+  when `sound` is false; a suspended context is resumed first and every failure reaches
+  `onError`. The click and the tone share one `withAudio` helper.
+- `src/ui/app/session.ts`: `playDueTone` reads `settings.sound` at call time and is passed as the
+  notifier's `sound` dep *and* called in the notifications-off branch of `gated`, so the tone
+  sounds in both branches (WP B's open question). The wake lock is built once with
+  `createWakeLock({ ...browserWakeLockDeps(), onError: transient })` and driven by an `effect` on
+  `settings.keepScreenOn`; the new `stop()` calls `timers.stop()`, `wakeLock.disable()` and
+  disposes both effects. New `setIntake` and `bookDischarge` actions; the booking toast is
+  `Discharge booked for HH:MM` with no undo.
+- `src/ui/app/actions.ts`: `setIntake` and `bookDischarge` factories; a cleared booking omits
+  `bookedAt` rather than sending undefined.
+- `src/ui/Settings.tsx`: `Sound` with the section 5 hint, the new `Keep screen on` toggle and
+  hint, and `Alerts repeat every 5 minutes while a check is overdue.` appended to all four
+  notification hints.
+- `src/ui/DevGallery.tsx`: a seventh row/belt variant with an overdue booking, a future booking
+  on the custom-task variant, a fifth patient sheet ("Discharge booked"), and the chips section
+  extended with the three status chips and both tones of the Home chip.
+- `src/ui/ui.css`, `src/ui/tokens.css`: `--icon: 16px` token and a `.icon` rule; `.chip` can
+  shrink and hides overflow; `.chip__label` is the only part that ellipsises; `.row__side` is a
+  two-line column (`.row__side-line` holds intake and Home together) so the header never exceeds
+  48 px; the status chip and species do not shrink; on handsets (`width <= 430px`) the timer chip
+  is capped at 22ch so a long label cannot push the patient's name off the row.
+- `README.md`: 18 steps and the icon list instead of the two-letter codes, the status chip, the
+  handover scheduling the checks, Book discharge, free-text intake, Sound, Keep screen on, the
+  five-minute repeat, notes 1000, the new `status.ts` and `wakelock.ts` rows in the tree, and
+  every screenshot alt text rewritten to the new board. `docs/screenshots/*.png` regenerated from
+  the production build with `WARDBELT_EVIDENCE=1`.
+- Tests: unit coverage for the chip in every status, icons for every step and letters for custom,
+  the timer chip label, the booking flow (set, clear, past-time warning tone, discharged hides
+  the chip and the controls), intake presets, No set time, the trim and the validator message,
+  `SET_INTAKE` and `BOOK_DISCHARGE` wiring through the session and the App, maxLength 1000,
+  `dueTone` gating and failure paths, the wake lock effect on the setting (including a refused
+  lock reaching the banner and `stop()` releasing it), the Settings toggles, and a zero-cell belt
+  rendering as empty rather than complete. e2e: `helpers.ts` step list without `To theatre` plus
+  `completeThroughHandover` and `bookDischarge` helpers; a new booking flow (book, row chip,
+  clear, rebook in the past for the warning tone, then discharge); the theatre test rewritten to
+  assert the checks appear only after `Handover from theatre`; icon assertions in the gallery,
+  flows and a11y specs.
+
+**DoD evidence** (worktree `/home/user/wardbelt-wt/c`, commit 49d0453)
+
+- `npm run lint`: `eslint . --max-warnings 0` clean, `prettier --check .` prints
+  `All matched files use Prettier code style!`. No rule disabled, no config touched.
+- `npm run typecheck`: `tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sw.json --noEmit`, no
+  output, exit 0.
+- `npm test` (`vitest run --coverage`): `Test Files 45 passed (45)`, `Tests 572 passed (572)`
+  (was 43 files / 517 tests). Coverage: statements 99.23% (2082/2098), branches 97.33%
+  (1386/1424), functions 98.4% (554/563), lines 99.36% (2031/2044); the `src/domain/**` 100%
+  thresholds pass. `src/ui` 98.61% statements / 95.48% branches, `src/ui/app` 98.25% / 94.93%.
+- `npm run build`: `index.html` 1.35 kB, `assets/index-*.css` 15.41 kB (gzip 3.25 kB),
+  `assets/index-*.js` 103.61 kB (gzip 35.72 kB), `assets/DevGallery-*.js` 8.78 kB (gzip 3.02 kB),
+  `assets/workbox-window.prod.es5-*.js` 5.75 kB, `manifest.webmanifest` 0.50 kB, `sw.mjs`
+  17.07 kB (gzip 5.73 kB), precache 13 entries (136.51 KiB). App JS grew 9.6 kB raw / 3.2 kB
+  gzipped over WP B (the icons, the booking and intake controls); the PLAN.md stage 7 budget of
+  60 kB gzipped for the bundle is still met (35.72 + 3.25 + 2.36 = 41.3 kB gzipped).
+- `npm run test:e2e` (`playwright test`, Pixel 5 profile, production build via `vite preview` on
+  4173): `39 passed (1.2m)`, 0 failed: dev-gallery 13 (one new icon test), flows 11 (one new
+  booking flow), transfer 6, a11y 2, screenshots 1, shift 1, install 3, smoke 2. axe
+  (wcag2a/wcag2aa/wcag21aa) is clean on the board with data and the open sheet in both themes
+  with the SVG icons in place, and every visible target is still at least 48 px.
+- Screenshots: regenerated with `WARDBELT_EVIDENCE=1`; each file is under the spec's 300 kB cap
+  (largest 157 kB) and the board, sheet, add, summary, settings and dark board all show the new
+  UI. They were read back and inspected, which is how the two layout defects below were found.
+
+**Deviations and decisions**
+
+1. The check icon is the stethoscope plus a bold digit, as first specified, not the
+   digit-in-a-circle fallback: at 24 px in the Playwright screenshot the digits 1 to 4 are
+   clearly legible in both the outlined and the filled state. The stethoscope itself reads as a
+   compact mark rather than a literal instrument at that size; the belt's accessible name and the
+   sheet's label carry the meaning, so it was kept.
+2. Icons are rendered in the patient sheet's task cells as well as the belt. Section 5 names only
+   the belt, but the sheet's cell is the same `.belt__square` component and leaving codes there
+   would have been the only place in the app still showing them.
+3. `IntakeField` and `intakeValue` live in `AddPatientSheet.tsx` and are imported by
+   `PatientSheet.tsx` rather than becoming a new component file, so the PLAN.md section 3 file
+   tree gains only the `icons.tsx` the change set asked for, and the admission form and the later
+   edit cannot drift apart.
+4. The patient sheet asks `validatePatientForm({ intake: value })` for the intake message and
+   reads only `errors.intake`, rather than copying the wording. The validator owns the rule and
+   the string.
+5. Row layout: two defects were visible only in the rendered screenshot and are fixed in CSS.
+   (a) With the full task label, the timer chip pushed the patient's name to zero width; the chip
+   is now split into a shrinkable `.chip__label` and a fixed countdown, and on handsets it is
+   capped at 22ch, so a long label is cut short before the name is. (b) Three stacked chips
+   (timer, intake, Home) would have made the side column 68 px and broken the 88 px row, so
+   intake and Home share one line inside `.row__side`. The section 5 wording "after the intake
+   chip in `row__side`" is honoured; only the line they sit on differs.
+6. The space between the timer chip's label and its countdown is a non-breaking space: with the
+   two as separate flex items an ordinary leading space collapses and the chip would read
+   "check 2in 04:30". Test assertions match it with `\s` or normalise it, which is noted at each
+   site.
+7. `Session.stop()` is new. There was no teardown path to hang `wakeLock.disable()` on, so one
+   was added (it also calls `timers.stop()` and disposes the theme and wake lock effects) and
+   tested. Nothing in `main.tsx` calls it; it exists for teardown and is exercised by the tests.
+8. A booking that clears shows no toast. Section 5 specifies the toast for a booking only, and
+   the `Booked for HH:MM` line disappearing is the feedback for a clear.
+9. `tests/e2e/shift.spec.ts` now completes `Handover from theatre` where it used to skip it: the
+   post-op checks are scheduled by that completion, so skipping it left the scripted shift with
+   no timed checks at all. Tasks skipped in that shift is therefore 1, not 2; every other number
+   is unchanged. `tests/e2e/screenshots.spec.ts` moves its second fast-forward from 17 to 31
+   minutes for the same reason (the checks now start at the handover, 14 minutes later).
+10. Two pre-existing assertions on the shift label were relaxed to `/^Shift from 04:00 Tue,? 10
+    Mar$/`. See the environment note below: `toLocaleDateString('en-GB', { weekday: 'short' })`
+    returns "Tue, 10 Mar" on the Chromium available in this sandbox and "Tue 10 Mar" on newer
+    ICU, and the assertion is about the shift, not about one browser's punctuation.
+
+**Environment note (not a code issue)**
+
+`/opt/pw-browsers` holds Chromium revision 1194, but `@playwright/test` 1.63.0 in
+`node_modules` expects revision 1243, so `npx playwright test` fails to launch with "Executable
+doesn't exist"; `playwright install` is forbidden in this run and there is no other build on the
+machine. The suite was therefore run against the installed browser through a scratch
+`PLAYWRIGHT_BROWSERS_PATH` whose `chromium_headless_shell-1243` and `chromium-1243` entries are
+symlinks to the 1194 binaries. Nothing in the repository was changed for this; CI installs the
+matching browser itself. The only visible consequence was the ICU difference in deviation 10,
+verified directly: in that browser `new Date(2026, 2, 10).toLocaleDateString('en-GB', { weekday:
+'short', day: 'numeric', month: 'short' })` is `"Tue, 10 Mar"`, in Node it is `"Tue 10 Mar"`.
+
+**Open questions**
+
+- The gate was run with the browser shim above. A verifier on a machine with Chromium 1243
+  should re-run `npm run test:e2e` unshimmed; the only assertions that could differ are the two
+  shift labels, which now accept both spellings.
+- `src/sw.ts` was read and left alone: `notificationclick` still closes the notification, focuses
+  the first client under the registration scope and otherwise opens the scope. It has no unit
+  test (the file is excluded from coverage); the e2e install spec still asserts the worker takes
+  control of the page.
+- `Session.stop()` has no caller in `main.tsx`. If the orchestrator wants it called on
+  `pagehide`, that is a one-line addition in `main.tsx`.
+- The timer chip's label is cut short on a 393 px screen when the patient's name is long (the
+  fixtures' names are the worst case). With real, shorter names both fit. If the orchestrator
+  would rather the name were cut instead, the choice is the single `max-width` in the handset
+  media query.
+
+**Fix round (verifier FAIL, 2026-09-17)**
+
+The verifier returned two findings and four notes; all six are fixed with a test each, at commit
+bf7a381. F1 (spec section 5 was amended for it): the full-label timer chip never fitted at 393 px,
+so the chip now carries the step's icon (custom tasks: the two-letter code) and the countdown,
+with the full task label in a visually-hidden span for screen readers, and the 22ch handset cap in
+`ui.css` is gone. Measuring the worst row showed the chip was not the only problem: with a text
+column beside a chip column, the widest line of each side competed, so the name had 33 px of the
+147 px it needed. The header is now two independent lines, each spending its own width: the name
+(and kennel) share line one with the countdown chip, and the species, the ward status chip, the
+procedure, the intake chip and the booked collection chip share line two. Both lines are 20 px, so
+the header is still 48 px and the row still 88 px, and the procedure is now the first text to give
+way; the name is cut short only after it. Measured on the gallery's full row (long name, status
+chip, intake, booked collection, overdue check) at 393 px: name 147/147, timer chip 133/133,
+status 78/78, intake 47/47, collection 97/97, procedure 48 of 100 (ellipsised), row 88 px. That
+row is now a Playwright regression test (`a full row at 393 px keeps the name and every chip
+whole`) which compares `scrollWidth` with `clientWidth` for the name and for all four chips. N1: a
+`type="time"` box sanitises a half-typed entry to `''`, so "Save intake" stored `none` and wiped a
+real intake; `readIntake` now reads `validity.badInput` and returns undefined for an incomplete
+entry, the sheet shows the validator's message and dispatches nothing, and the add form sends `''`
+to the validator, which rejects it with the same wording. N2: `NOTES_MAX` is imported from
+`@domain/validate` instead of being redeclared. N3: `take_out` is redrawn as three curved blades
+over a ground line and `pain_score` as a face above a ticked scale; both were checked in the
+regenerated screenshot. N5: `Platform.onPageHide` is new, `main.tsx` passes
+`window.addEventListener('pagehide', fn)` and the session subscribes `stop()` to it, so a
+discarded page releases the wake lock and the timer; the wiring is tested through the fake
+platform (the alternative, testing `main.tsx` itself, cannot be imported under Vitest because of
+`virtual:pwa-register`). F2: the README claims row now cites the handover rule and the renamed
+test. Gate re-run in the worktree: lint and prettier clean; typecheck clean; `Test Files 45 passed
+(45)`, `Tests 575 passed (575)`, coverage statements 99.23% (2087/2103), branches 97.35%
+(1396/1434), `src/domain` still at its 100% thresholds; build `index-*.js` 103.96 kB (gzip
+35.82 kB), css 15.25 kB (gzip 3.21 kB), sw 17.07 kB, precache 13 entries (136.72 KiB);
+`npm run test:e2e` 40 passed (1.2m), axe clean in both themes with the new header. Screenshots
+regenerated. The e2e run again used a scratch `PLAYWRIGHT_BROWSERS_PATH`, this time in the layout
+the verifier described (`chromium_headless_shell-1243/chrome-headless-shell-linux64/
+chrome-headless-shell` symlinked to the installed 1194 headless shell, plus `chromium-1243` and
+`ffmpeg-1011`), which launches cleanly.
