@@ -19,12 +19,20 @@ import {
   allFixturePatients,
   fixtureEvents,
   isoPlus,
+  patientFresh,
   patientWithCustomTask,
 } from '../../fixtures/synthetic';
 
 function errorsOf(r: { ok: true } | { ok: false; errors: Readonly<Record<string, string>> }) {
   return r.ok ? {} : r.errors;
 }
+
+const EVENT_BASE = {
+  id: 'e1',
+  at: FIXED_NOW_ISO,
+  type: 'TASK_COMPLETED',
+  patientId: 'p1',
+};
 
 describe('parseIso', () => {
   it('normalises valid dates and rejects the rest', () => {
@@ -87,9 +95,9 @@ describe('validatePatientForm', () => {
         weightKg: 'heavy',
         procedure: 42,
         kennel: 'k'.repeat(11),
-        intake: '11:00',
+        intake: '24:00',
         ownerPhone: 'abc-123',
-        notes: 'n'.repeat(501),
+        notes: 'n'.repeat(1001),
       }),
     );
     expect(errors).toEqual({
@@ -100,9 +108,9 @@ describe('validatePatientForm', () => {
       weightKg: 'Must be a number',
       procedure: 'Must be text',
       kennel: 'At most 10 characters',
-      intake: 'Choose an intake slot',
+      intake: 'Enter a time as HH:MM, or none',
       ownerPhone: 'Digits, spaces and + only',
-      notes: 'At most 500 characters',
+      notes: 'At most 1000 characters',
     });
   });
 
@@ -133,6 +141,39 @@ describe('validatePatientForm', () => {
       procedure: 'Required',
     });
     expect(errorsOf(validatePatientForm({ ...FORM_DOG, breed: null }))).toEqual({});
+  });
+
+  it('accepts any HH:MM intake or none and rejects the rest', () => {
+    for (const intake of ['00:00', '08:00', '09:30', '23:59', 'none']) {
+      const r = validatePatientForm({ ...FORM_DOG, intake });
+      expect(r.ok && r.value.intake).toBe(intake);
+    }
+    for (const intake of ['24:00', '9:00', '08:60', '0800', '08:00 ', '', ' none', 8, null]) {
+      expect(errorsOf(validatePatientForm({ ...FORM_DOG, intake }))).toEqual({
+        intake: 'Enter a time as HH:MM, or none',
+      });
+    }
+  });
+
+  it('accepts notes at 1000 characters and rejects 1001', () => {
+    const at1000 = 'n'.repeat(1000);
+    const r = validatePatientForm({ ...FORM_DOG, notes: at1000 });
+    expect(r.ok && r.value.notes).toBe(at1000);
+    expect(errorsOf(validatePatientForm({ ...FORM_DOG, notes: 'n'.repeat(1001) }))).toEqual({
+      notes: 'At most 1000 characters',
+    });
+  });
+
+  it('does not treat inherited Object properties as species, sex or task keys', () => {
+    expect(errorsOf(validatePatientForm({ ...FORM_DOG, species: 'toString' }))).toEqual({
+      species: 'Choose a species',
+    });
+    expect(errorsOf(validateEvent({ ...EVENT_BASE, taskKey: 'constructor' }))).toEqual({
+      taskKey: 'Unknown task key',
+    });
+    expect(errorsOf(validateEvent({ ...EVENT_BASE, taskKey: '__proto__' }))).toEqual({
+      taskKey: 'Unknown task key',
+    });
   });
 });
 
@@ -204,6 +245,42 @@ describe('validatePatientRecord', () => {
       expect(r.value.tasks[0]?.note).toBeUndefined();
       expect(r.value.tasks.find((t) => t.custom)?.note).toBe('Left fore, check for slippage');
     }
+  });
+
+  it('drops a retired to_theatre task and renumbers the survivors contiguously', () => {
+    const p = patientFresh();
+    const retired = {
+      id: `${p.id}:to_theatre`,
+      key: 'to_theatre',
+      label: 'To theatre',
+      phase: 'PRE_OP',
+      order: 4,
+      status: 'done',
+      doneAt: FIXED_NOW_ISO,
+      custom: false,
+    };
+    const stored = JSON.parse(JSON.stringify(p)) as { tasks: unknown[] };
+    stored.tasks = [...p.tasks.slice(0, 4), retired, ...p.tasks.slice(4).map((t) => ({ ...t }))];
+    const r = validatePatientRecord(stored);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.tasks).toHaveLength(18);
+      expect(r.value.tasks.map((t) => t.order)).toEqual([...Array(18).keys()]);
+      expect(r.value.tasks.some((t) => (t.key as string) === 'to_theatre')).toBe(false);
+      expect(r.value.tasks).toEqual(p.tasks);
+    }
+  });
+
+  it('keeps an optional dischargeBookedAt and rejects an unparseable one', () => {
+    const p = patientFresh();
+    const r = validatePatientRecord({ ...p, dischargeBookedAt: FIXED_NOW_ISO });
+    expect(r.ok && r.value.dischargeBookedAt).toBe(FIXED_NOW_ISO);
+    expect(
+      'dischargeBookedAt' in (validatePatientRecord({ ...p }) as { value: object }).value,
+    ).toBe(false);
+    expect(errorsOf(validatePatientRecord({ ...p, dischargeBookedAt: 'teatime' }))).toEqual({
+      dischargeBookedAt: 'Must be an ISO 8601 date',
+    });
   });
 
   it('rejects non-objects and bad record fields', () => {
@@ -287,6 +364,20 @@ describe('validateEvent', () => {
     expect(validateEvent({ ...full, junk: 1 })).toEqual({ ok: true, value: full });
   });
 
+  it('keeps a retired step key so the history stays readable', () => {
+    expect(
+      validateEvent({ ...EVENT_BASE, taskId: 'p1:to_theatre', taskKey: 'to_theatre' }),
+    ).toEqual({
+      ok: true,
+      value: {
+        ...EVENT_BASE,
+        type: 'TASK_COMPLETED',
+        taskId: 'p1:to_theatre',
+        taskKey: 'to_theatre',
+      },
+    });
+  });
+
   it('rejects non-objects and bad fields', () => {
     expect(validateEvent(1)).toEqual({ ok: false, errors: { record: 'Not an object' } });
     expect(
@@ -326,6 +417,22 @@ describe('validateSettings', () => {
     expect(validateSettings({ ...FIXTURE_SETTINGS, lastExportAt: FIXED_NOW_ISO })).toEqual({
       ok: true,
       value: { ...FIXTURE_SETTINGS, lastExportAt: FIXED_NOW_ISO },
+    });
+  });
+
+  it('defaults keepScreenOn to false when missing and rejects a non-boolean', () => {
+    const withoutFlag: Record<string, unknown> = { ...FIXTURE_SETTINGS };
+    delete withoutFlag.keepScreenOn;
+    expect(validateSettings(withoutFlag)).toEqual({
+      ok: true,
+      value: { ...FIXTURE_SETTINGS, keepScreenOn: false },
+    });
+    expect(validateSettings({ ...FIXTURE_SETTINGS, keepScreenOn: true })).toEqual({
+      ok: true,
+      value: { ...FIXTURE_SETTINGS, keepScreenOn: true },
+    });
+    expect(errorsOf(validateSettings({ ...FIXTURE_SETTINGS, keepScreenOn: 'yes' }))).toEqual({
+      keepScreenOn: 'Must be true or false',
     });
   });
 

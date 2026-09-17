@@ -1,9 +1,11 @@
 // Decision notes: every function returns the same reference when the action is a no-op and a
 // fresh object otherwise; nothing is mutated. Property order is kept stable (spread then
 // overwrite, delete for removal) so an undo restores a record byte-for-byte. Tasks are found
-// by id with a linear scan; a patient holds at most a few dozen tasks. Reverting a completed
-// in_theatre undoes its side effects (theatre return and check due times); reverting a
-// skipped one does not, because a skip never set them.
+// by id with a linear scan; a patient holds at most a few dozen tasks. The theatre return is
+// recorded when handover_theatre completes, not when in_theatre does, because the animal is
+// only back on the ward at handover. Reverting a completed handover_theatre undoes those side
+// effects (theatre return and check due times); reverting a skipped one does not, because a
+// skip never set them.
 import { clearChecks, scheduleChecks } from './recovery';
 import { TEMPLATE } from './template';
 import { templateTaskId, type Iso, type Patient, type PatientForm, type Task } from './types';
@@ -57,7 +59,7 @@ function settle(p: Patient, taskId: string, status: 'done' | 'skipped', at: Iso)
     return p;
   }
   const tasks = replaceTask(p.tasks, { ...task, status, doneAt: at });
-  if (status === 'done' && task.key === 'in_theatre') {
+  if (status === 'done' && task.key === 'handover_theatre') {
     return { ...p, tasks: scheduleChecks(tasks, at), theatreReturnAt: at };
   }
   if (status === 'done' && task.key === 'discharge') {
@@ -121,6 +123,22 @@ export function setNote(p: Patient, taskId: string | undefined, note: string): P
   return task.note === note ? p : { ...p, tasks: replaceTask(p.tasks, { ...task, note }) };
 }
 
+/** Records or clears the agreed collection time. Discharged patients are left alone. */
+export function bookDischarge(p: Patient, bookedAt: Iso | undefined): Patient {
+  if (p.status === 'discharged') {
+    return p;
+  }
+  if (bookedAt === undefined) {
+    if (p.dischargeBookedAt === undefined) {
+      return p;
+    }
+    const next = { ...p };
+    delete next.dischargeBookedAt;
+    return next;
+  }
+  return p.dischargeBookedAt === bookedAt ? p : { ...p, dischargeBookedAt: bookedAt };
+}
+
 export function dischargePatient(p: Patient, at: Iso): Patient {
   if (p.status === 'discharged') {
     return p;
@@ -141,7 +159,7 @@ export function revertTask(p: Patient, taskId: string): Patient {
   const reverted: Task = { ...task, status: 'todo' };
   delete reverted.doneAt;
   const tasks = replaceTask(p.tasks, reverted);
-  if (task.status === 'done' && task.key === 'in_theatre') {
+  if (task.status === 'done' && task.key === 'handover_theatre') {
     const next = { ...p, tasks: clearChecks(tasks) };
     delete next.theatreReturnAt;
     return next;

@@ -274,7 +274,7 @@ describe('property (c): recovery checks fall due exactly +15/+30/+45/+60 minutes
         FIXED_NOW_MS + rng.int(48 * 60 * 60_000) - 24 * 60 * 60_000 + rng.int(1000);
       const returnedAt = toIso(returnedMs);
       const p = deepFreeze(rng.pick([patientInTheatre(), fixturePatient('x', FORM_CAT)]));
-      const viaTask = completeTask(p, `${p.id}:in_theatre`, returnedAt);
+      const viaTask = completeTask(p, `${p.id}:handover_theatre`, returnedAt);
       const viaAction = reduce(
         deepFreeze({ ...initialState(FIXED_NOW_MS), patients: { [p.id]: p } }),
         { type: 'SET_THEATRE_RETURN', patientId: p.id, returnedAt, at: returnedAt, eventId: 'r' },

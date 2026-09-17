@@ -12,8 +12,11 @@ export type Species = (typeof SPECIES)[number];
 export const SEXES = ['M', 'MN', 'F', 'FN', 'unknown'] as const;
 export type Sex = (typeof SEXES)[number];
 
-export const INTAKES = ['08:00', '09:00', '10:00', 'none'] as const;
-export type Intake = (typeof INTAKES)[number];
+// Intake is 'none' or a 24-hour local time HH:MM. INTAKES (the fixed slot list) is removed.
+export const INTAKE_NONE = 'none';
+export type Intake = string;
+/** 08:00, 09:00, 10:00 offered as quick picks in the UI; any HH:MM is valid. */
+export const INTAKE_PRESETS: readonly string[] = Object.freeze(['08:00', '09:00', '10:00']);
 
 export const PHASES = ['PRE_OP', 'THEATRE', 'RECOVERY', 'DISCHARGE_PREP', 'DONE'] as const;
 export type Phase = (typeof PHASES)[number];
@@ -23,7 +26,6 @@ export type StepKey =
   | 'bloods'
   | 'draw_meds'
   | 'premed'
-  | 'to_theatre'
   | 'in_theatre'
   | 'handover_theatre'
   | 'check_1'
@@ -38,6 +40,11 @@ export type StepKey =
   | 'pharmacy_collect'
   | 'remove_iv'
   | 'discharge';
+
+// RETIRED_STEP_KEYS lists keys that may still appear in stored records and import files; they
+// are dropped from patients and tolerated on events.
+export const RETIRED_STEP_KEYS = ['to_theatre'] as const;
+export type RetiredStepKey = (typeof RETIRED_STEP_KEYS)[number];
 
 export type TaskKey = StepKey | 'custom';
 export type TaskStatus = 'todo' | 'done' | 'skipped';
@@ -75,6 +82,8 @@ export interface Patient extends PatientForm {
   status: PatientStatus;
   createdAt: Iso;
   theatreReturnAt?: Iso;
+  /** Collection time agreed with the owner. Set by BOOK_DISCHARGE; cleared by BOOK_DISCHARGE with no time. */
+  dischargeBookedAt?: Iso;
   dischargedAt?: Iso;
   tasks: Task[];
 }
@@ -87,6 +96,7 @@ export type EventType =
   | 'UNDO'
   | 'THEATRE_RETURN'
   | 'DISCHARGED'
+  | 'DISCHARGE_BOOKED'
   | 'PATIENT_DELETED';
 
 /** Append-only. UNDO events carry `undoOf`, the id of the completion or skip they reverted. */
@@ -96,7 +106,7 @@ export interface Event {
   type: EventType;
   patientId: string;
   taskId?: string;
-  taskKey?: TaskKey;
+  taskKey?: TaskKey | RetiredStepKey;
   custom?: boolean;
   dueAt?: Iso;
   undoOf?: string;
@@ -110,6 +120,8 @@ export interface Settings {
   theme: Theme;
   purgeDays: number;
   showOwnerPhone: boolean;
+  /** Hold a screen wake lock while the app is visible so timers keep running. Default false. */
+  keepScreenOn: boolean;
   lastExportAt?: Iso;
 }
 
@@ -119,6 +131,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   theme: 'system',
   purgeDays: 30,
   showOwnerPhone: false,
+  keepScreenOn: false,
 });
 
 export interface State {
@@ -159,6 +172,8 @@ export type Action =
     } & Stamp)
   | ({ type: 'SET_THEATRE_RETURN'; patientId: string; returnedAt: Iso } & Stamp)
   | ({ type: 'DISCHARGE'; patientId: string } & Stamp)
+  | ({ type: 'BOOK_DISCHARGE'; patientId: string; bookedAt?: Iso } & Stamp)
+  | { type: 'SET_INTAKE'; patientId: string; intake: Intake }
   | ({ type: 'DELETE_PATIENT'; patientId: string } & Stamp)
   | { type: 'SET_NOTE'; patientId: string; taskId?: string; note: string }
   | { type: 'SET_SETTINGS'; settings: Partial<Settings> }

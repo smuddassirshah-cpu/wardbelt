@@ -89,6 +89,14 @@ describe('urgencyOf', () => {
     expect(urgencyOf(farOff, FIXED_NOW_MS)).toEqual({ rank: 3 });
   });
 
+  it('ranks any free-text intake time as tagged and sorts them by string compare', () => {
+    const odd = fixturePatient('w', { ...FORM_OTHER, intake: '13:45' });
+    expect(urgencyOf(odd, FIXED_NOW_MS)).toEqual({ rank: 2 });
+    const earlier = fixturePatient('v', { ...FORM_OTHER, intake: '09:05' });
+    const sorted = sortByUrgency([odd, earlier], FIXED_NOW_MS).map((p) => p.id);
+    expect(sorted).toEqual(['v', 'w']);
+  });
+
   it('is overdue at exactly the due time and due soon at exactly DUE_SOON_MS', () => {
     const base = fixturePatient('z', FORM_OTHER);
     const atDue = timed(base, 'bloods', FIXED_NOW_ISO);

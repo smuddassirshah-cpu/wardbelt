@@ -655,6 +655,139 @@ none: deployed
 Deploy confirmation (orchestrator, 2026-09-09): CI run and Pages run for main commit 5b76ee9 both completed with conclusion success. Live checks against https://smuddassirshah-cpu.github.io/wardbelt/ : index 200 with the CSP meta; manifest.webmanifest 200 (name Wardbelt, start_url and scope /wardbelt/, display standalone, icons 192, 512 and maskable 512, each served 200 image/png); sw.js 200 (17 precache entries including index.html); all asset references under /wardbelt/assets/. Playwright Pixel 5 against the live URL: navigator.serviceWorker.ready resolves with scope /wardbelt/, the controller is /wardbelt/sw.js after reload, an offline reload still renders the board, the empty state and the 48 px Add patient button render after hydration, zero console errors.
 
 
+### Post field test WP A: domain and store (implementing subagent, 2026-09-17)
+
+**Built**
+
+- `src/domain/types.ts`: CHANGES-2026-09.md section 2 applied verbatim. `INTAKES` removed;
+  `INTAKE_NONE`, `Intake = string` and `INTAKE_PRESETS` added. `StepKey` drops `to_theatre`;
+  `RETIRED_STEP_KEYS` and `RetiredStepKey` added and `Event.taskKey` widened to
+  `TaskKey | RetiredStepKey`. `Patient.dischargeBookedAt?`, `EventType 'DISCHARGE_BOOKED'`,
+  `Settings.keepScreenOn` with `DEFAULT_SETTINGS.keepScreenOn: false`, and the `BOOK_DISCHARGE`
+  and `SET_INTAKE` action members.
+- `src/domain/template.ts`: `to_theatre` removed, eighteen steps, order, phases and codes of the
+  survivors unchanged.
+- `src/domain/patient.ts`: `settle` records `theatreReturnAt` and schedules the checks on a done
+  `handover_theatre`; completing `in_theatre` records nothing timed. `revertTask` clears both on a
+  reverted done `handover_theatre` and leaves them alone for a skip or for `in_theatre`. New
+  `bookDischarge(p, bookedAt)` sets or deletes `dischargeBookedAt`, same reference on a no-op, no
+  effect on a discharged patient.
+- `src/domain/status.ts` (new): `WardStatus` and `wardStatus(p)`, the four ordered rules in one
+  O(n) pass over the tasks; custom tasks count by phase.
+- `src/domain/reducer.ts`: `BOOK_DISCHARGE` applies `bookDischarge` and appends
+  `DISCHARGE_BOOKED` with `dueAt` only when setting; `SET_INTAKE` validates through
+  `isIntake` and replaces `intake` with no event. Both return the same state reference on an
+  unknown patient, an unchanged value or an invalid input; an unparseable `bookedAt` is caught by
+  `timestampsValid`. UNDO is untouched, so bookings survive it.
+- `src/domain/validate.ts`: intake is `'none'` or `/^([01]\d|2[0-3]):[0-5]\d$/` with the message
+  `Enter a time as HH:MM, or none` (exported as `isIntake` so the reducer shares the rule);
+  `notes` and task `note` cap at `NOTES_MAX = 1000`; tasks with a retired key are dropped from
+  records and imports before validation and the survivors are renumbered 0..n-1 in their original
+  order; `validateEvent` accepts a retired `taskKey`; `isTaskKey` uses `Object.hasOwn`;
+  `dischargeBookedAt` is an optional ISO field; settings gain `keepScreenOn`, defaulting to false
+  when the field is missing so older exports still import.
+- `src/domain/stats.ts`: `DISCHARGE_BOOKED` joins the ignored event types.
+- `src/store/repo.ts`: `keepScreenOn` added to `SETTINGS_KEYS` so it is persisted and read back.
+  No schema change: `DB_VERSION` stays 1 and `TRANSFER_SCHEMA_VERSION` stays 1.
+- `tests/fixtures/synthetic.ts`: eighteen-step belt, `patientInTheatre` and `patientRecovery`
+  rebuilt without `to_theatre`, `patientRecovery`'s `theatreReturnAt` now pinned to the
+  `handover_theatre` completion (`in_theatre` done two minutes earlier), `FIXTURE_SETTINGS` gains
+  `keepScreenOn: false`. Check due times and the fixed clock are unchanged.
+- Tests: new `tests/unit/domain/status.test.ts` (7 cases) and `tests/unit/domain/template.test.ts`
+  (3 cases); new cases in `patient.test.ts` (bookDischarge set/replace/clear/discharged/survives
+  discharge, in_theatre records nothing, revert rules), `reducer.test.ts` (BOOK_DISCHARGE
+  set/clear/no-op/invalid/discharged/UNDO, SET_INTAKE valid/invalid/unchanged),
+  `validate.test.ts` (intake boundaries `00:00`, `23:59`, `24:00`, `9:00` and friends, notes at
+  1000 and 1001, prototype-chain keys, retired task drop with contiguous orders, retired event
+  key, optional `dischargeBookedAt`, `keepScreenOn` default), `urgency.test.ts` (free-text intake
+  ranks 2 and sorts by string), `stats.test.ts` (DISCHARGE_BOOKED ignored, retired completion
+  still counted), `store/repo.test.ts` (stored patient with `to_theatre` at order 4 loads as
+  eighteen contiguous tasks, its completion event still counts in `shiftStats`, and the next
+  `savePatient` writes the trimmed record) and `store/transfer.test.ts` (an older export with a
+  `to_theatre` task, a retired event `taskKey` and no `keepScreenOn` imports cleanly).
+
+**DoD evidence**
+
+- `npx eslint src/domain src/store tests/unit/domain tests/unit/store tests/fixtures
+  --max-warnings 0`: clean, no output.
+- `npx prettier --check src/domain src/store tests/unit/domain tests/unit/store tests/fixtures`:
+  `All matched files use Prettier code style!`
+- `npx eslint tests/unit/scaffold.test.tsx --max-warnings 0` and the matching prettier check:
+  clean (see Deviations).
+- `npx tsc -p tsconfig.json --noEmit`: two errors, both outside WP A's directories and both
+  expected consequences of the section 2 contract change:
+  - `src/ui/AddPatientSheet.tsx(6,26)`: `'"@domain/types"' has no exported member named 'INTAKES'`
+  - `tests/unit/app/ids-actions.test.ts(139,31)`: a literal `Settings` without `keepScreenOn`
+  No errors in `src/domain`, `src/store`, `tests/unit/domain`, `tests/unit/store` or
+  `tests/fixtures`. `npx tsc -p tsconfig.sw.json --noEmit`: clean.
+- `npx vitest run --coverage tests/unit/domain tests/unit/store`: `Test Files 13 passed (13)`,
+  `Tests 225 passed (225)`, no threshold errors. Aggregated `src/domain` coverage from
+  `coverage/coverage-summary.json`: statements 614/614 (100%), branches 465/465 (100%),
+  functions 116/116 (100%), lines 598/598 (100%). Every file in `src/domain` is individually at
+  100/100/100/100. `src/store` from the same run: `repo.ts` 100 stmts / 97.1 branches,
+  `db.ts` 100 stmts / 90 branches (unchanged from the stage 2 baseline; the store thresholds are
+  not 100%).
+- The full unit run was used only to enumerate out-of-scope breakage, not as a gate:
+  `Test Files 8 failed | 36 passed (44)`, `Tests 23 failed | 492 passed (515)`. Every failure is
+  in WP C's directories. `tests/unit/scheduler` is green.
+
+**Deviations from the spec**
+
+1. `tests/unit/scaffold.test.tsx` is owned by no work package in CHANGES-2026-09.md section 1 but
+   asserts only WP A artefacts (`TEMPLATE.length`, the code set, and that every fixture patient
+   has at least the template's task count). Its three `19` literals were changed to `18`; nothing
+   else in the file was touched. Left broken it would have failed a gate no one owns.
+2. `tests/unit/domain/template.test.ts` is new and was not asked for. It was needed because
+   `customCode` in `src/domain/template.ts` had no domain test (it was only covered through
+   `src/ui/format.ts`), so `src/domain` could not reach the 100% threshold when the coverage run
+   is restricted to `tests/unit/domain` and `tests/unit/store`. The file also pins the
+   eighteen-step shape.
+3. Section 3 does not say what the reducer should do when `BOOK_DISCHARGE` changes nothing (same
+   time again, clearing an absent booking, a discharged patient). It returns the same state
+   reference and appends no event, matching every other reducer no-op and the "same reference on
+   every no-op" rule. A booking on a discharged patient is therefore silently ignored rather than
+   logged.
+4. `readTasks` renumbers `order` to the array index for every stored or imported record, not only
+   for records that carried a retired task. That is the simplest reading of "renumber order to
+   0..n-1 in the original order"; it is a no-op for well-formed records, whose array order and
+   `order` field already agree.
+5. `keepScreenOn` was added to `SETTINGS_KEYS` in `src/store/repo.ts`. Section 3 says the store
+   has no schema change, and this is not one (settings are one row per field, not a schema), but
+   without it the setting would never be persisted.
+6. The fixtures' `patientRecovery` keeps its existing check due times and `theatreReturnAt`; only
+   which task carries the completion moved (`handover_theatre` now completes at the return,
+   `in_theatre` two minutes earlier), so scheduler and UI tests that depend on the timings are
+   unaffected by the fixture change itself.
+
+**Open questions**
+
+- `INTAKE_PRESETS` is exported but unused inside WP A; WP C is expected to consume it in the
+  add-patient sheet and the patient sheet.
+- `fixtureEvents()` still carries the `in_theatre` `TASK_COMPLETED` event at the return time. It
+  is history, not derived state, so it stays valid, but if WP C or a verifier wants the fixture
+  events to mirror the new rule the event's `taskKey` should become `handover_theatre`.
+- Nothing in WP A calls `wardStatus`; its first consumer is WP C's `PatientRow`.
+
+**Out-of-scope files that now fail to compile or test (WP C to fix)**
+
+Typecheck:
+- `src/ui/AddPatientSheet.tsx` (imports the removed `INTAKES`)
+- `tests/unit/app/ids-actions.test.ts` (a `Settings` literal without `keepScreenOn`)
+
+Unit tests (all count or contract drift from eighteen steps, the removed `to_theatre` cell and the
+new intake control):
+- `tests/unit/app/app.test.tsx`
+- `tests/unit/hardening/storage-unavailable.test.tsx`
+- `tests/unit/ui/add-patient-sheet.test.tsx`
+- `tests/unit/ui/belt.test.tsx`
+- `tests/unit/ui/dev-gallery.test.tsx`
+- `tests/unit/ui/format.test.ts`
+- `tests/unit/ui/patient-row.test.tsx`
+- `tests/unit/ui/patient-sheet.test.tsx`
+
+`tests/e2e` was not run; `tests/e2e/helpers.ts` still lists `To theatre` and is WP C's per
+CHANGES-2026-09.md section 1.
+
 ### Post field test WP B: scheduler (implementing subagent, 2026-09-17)
 
 Branch `change/b-scheduler`. Scope: CHANGES-2026-09.md section 4 only. Files touched:
