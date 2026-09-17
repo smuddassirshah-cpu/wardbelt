@@ -25,12 +25,13 @@ Portfolio value is secondary; this is a tool for a real user. What it still demo
 wardbelt
 ├── src/
 │   ├── domain/            [TS]   pure, no I/O, no DOM; 100% unit-tested
-│   │   ├── template.ts           the 17-step template, phases, step keys, default timing
+│   │   ├── template.ts           the 18-step template, phases, step keys, default timing
 │   │   ├── types.ts              Patient, Task, Event, Shift, Settings
 │   │   ├── patient.ts            create from template, add/skip/complete/undo task, discharge; O(n) over a patient's tasks
 │   │   ├── recovery.ts           4 x 15-min check scheduling from theatre-return time
 │   │   ├── urgency.ts            board sort: overdue > due-soon > intake tag > created; O(n log n)
 │   │   ├── stats.ts              per-shift stats and streaks derived from events; O(n) over events
+│   │   ├── status.ts             derived ward status (waiting / theatre / recovery); O(n) over tasks
 │   │   └── reducer.ts            single (state, action) -> state reducer wrapping the above
 │   ├── store/             [TS]   persistence boundary
 │   │   ├── db.ts                 idb schema, versioned migrations, open/close
@@ -39,16 +40,18 @@ wardbelt
 │   ├── scheduler/         [TS]   time boundary
 │   │   ├── clock.ts              injectable clock (real and fake)
 │   │   ├── timers.ts             next-due computation, single setTimeout, resume-on-visibility
-│   │   └── notify.ts             permission, vibration, SW showNotification; graceful no-op if denied
+│   │   ├── notify.ts             permission, vibration, tone hook, SW showNotification; graceful no-op if denied
+│   │   └── wakelock.ts           opt-in screen wake lock, re-acquired on visibility; never throws
 │   ├── ui/                [TSX]  Preact components; no business logic
 │   │   ├── App.tsx               state wiring: reducer + store + scheduler via signals
 │   │   ├── Board.tsx             rows sorted by urgency; empty state; discharged filter
-│   │   ├── PatientRow.tsx        header + Belt + timer chip; tap current cell to complete
+│   │   ├── PatientRow.tsx        header + status chip + Belt + timer chip; tap current cell to complete
+│   │   ├── icons.tsx             inline SVG line icon per template step
 │   │   ├── Belt.tsx              horizontal segmented progress track
-│   │   ├── PatientSheet.tsx      full task list, add task, skip, notes, discharge, delete
+│   │   ├── PatientSheet.tsx      full task list, add task, skip, notes, intake, book discharge, discharge, delete
 │   │   ├── AddPatientSheet.tsx   template form, validated at boundary
 │   │   ├── ShiftSummary.tsx      end-of-shift stats screen
-│   │   ├── Settings.tsx          notifications toggle, sound toggle, theme, export/import, purge
+│   │   ├── Settings.tsx          notifications, sound, keep screen on, theme, export/import, purge
 │   │   ├── feedback.ts           haptic + animation + optional click on completion
 │   │   └── tokens.css            design tokens; the only place colours/spacing/type are defined
 │   ├── sw.ts              [TS]   service worker: precache app shell (vite-plugin-pwa), notification click handling
@@ -100,9 +103,11 @@ timers ──due──> notify (scheduler) ──> vibrate + SW notification
 
 Task model: `{id, key, label, phase, order, status: todo|done|skipped, dueAt?, doneAt?, note?, custom: boolean}`. Template step keys, in order, with phase:
 
-PRE-OP: `handover_admit`, `bloods`, `draw_meds`, `premed`, `to_theatre` (covers IV placement/prep help)
-THEATRE: `in_theatre` (waiting state; completing it records theatre-return time and schedules recovery)
-RECOVERY: `handover_theatre`, `check_1`, `check_2`, `check_3`, `check_4` (due +15/+30/+45/+60 min from `in_theatre` completion), `food_water`, `take_out`, `pain_score`
+PRE-OP: `handover_admit`, `bloods`, `draw_meds`, `premed`
+THEATRE: `in_theatre` (waiting state; completing it records nothing timed)
+RECOVERY: `handover_theatre` (completing it records the theatre-return time and schedules recovery), `check_1`, `check_2`, `check_3`, `check_4` (due +15/+30/+45/+60 min from `handover_theatre` completion), `food_water`, `take_out`, `pain_score`
+
+Retired steps: `to_theatre` (removed September 2026 after the field test; dropped from stored records and import files at validation, tolerated on events). Ward status per patient is derived, not stored: `theatre` once `in_theatre` is done or skipped, `recovery` once `handover_theatre` is done or skipped while any RECOVERY task is still to do, otherwise `waiting`; none once discharged. `dischargeBookedAt` is the collection time agreed with the owner (BOOK_DISCHARGE); it does not change status. Intake is any `HH:MM` local time or `none` and can be changed after admission (SET_INTAKE). See docs/CHANGES-2026-09.md.
 DISCHARGE PREP: `invoice`, `call_owner`, `pharmacy_collect` (meds, post-op sheet, collar etc.), `remove_iv`
 DONE: `discharge`
 
@@ -116,7 +121,7 @@ Class A (offline: no network calls, no secrets, no external users). The data-pro
 
 - Secrets: none. No API keys, no tokens. `.gitignore` still excludes `.env*`, `node_modules`, `dist`, `playwright-report`, `test-results`.
 - Entry points and validation (at the sheet boundary, once):
-  - Add patient form: `name` 1-40 chars trimmed; `species` from allow-list {dog, cat, rabbit, other}; `breed` 0-40; `sex` from {M, MN, F, FN, unknown}; `weightKg` optional number 0.05-150 with 2 dp; `procedure` 1-80; `kennel` 0-10; `intake` from {08:00, 09:00, 10:00, none}; `ownerPhone` optional, digits/+/space only, 6-20 chars (enables tap-to-call); `notes` 0-500.
+  - Add patient form: `name` 1-40 chars trimmed; `species` from allow-list {dog, cat, rabbit, other}; `breed` 0-40; `sex` from {M, MN, F, FN, unknown}; `weightKg` optional number 0.05-150 with 2 dp; `procedure` 1-80; `kennel` 0-10; `intake` `none` or a 24-hour local time `HH:MM`; `ownerPhone` optional, digits/+/space only, 6-20 chars (enables tap-to-call); `notes` 0-1000; task `note` 0-1000; `dischargeBookedAt` optional ISO timestamp.
   - Add custom task: `label` 1-60; `dueAt` optional ISO timestamp not more than 24 h in the past or 48 h ahead.
   - Import JSON: size cap 10 MB; `schemaVersion` must equal current; every record validated field by field with the same rules; unknown fields dropped; invalid file rejected whole with a count of failing records, never partially applied.
   - All rendering through Preact text nodes. No `dangerouslySetInnerHTML` anywhere; its presence fails lint.
@@ -132,7 +137,7 @@ Class A (offline: no network calls, no secrets, no external users). The data-pro
 | IndexedDB write | rejection | Action already applied in memory; write retried once after 250 ms; on second failure the banner above appears and the failed write is queued for retry on next successful write; nothing silently lost without the banner |
 | IndexedDB read at boot | corrupt record | Record skipped, count shown in a dismissible banner, offer export of raw store for recovery |
 | Notification permission | denied or unsupported | Vibration still attempted (`navigator.vibrate` is permission-free on Android Chrome); Settings shows the state and a one-line explanation; no repeated prompting |
-| Page backgrounded / screen off | JS timers throttled or page killed | On `visibilitychange` and on boot, `timers.ts` recomputes all due tasks and fires one combined vibration plus a notification listing overdue checks. Stated in §9 as a limitation |
+| Page backgrounded / screen off | JS timers throttled or page killed | On `visibilitychange` and on boot, `timers.ts` recomputes all due tasks and fires one combined vibration plus a notification listing overdue checks; the alert repeats every 5 minutes while a check stays overdue. The opt-in "Keep screen on" setting holds a screen wake lock while the app is visible so timers keep running. Stated in §9 as a limitation |
 | Service worker update | new build deployed | Skip-waiting with an in-app "Update ready, reload" bar; never a silent reload mid-shift |
 | Export | Share API unavailable | Fall back to `<a download>` blob; if that also fails, show the JSON in a copyable textarea |
 | Import | invalid file | Rejected whole with a message; existing data untouched |
@@ -178,7 +183,7 @@ Pinned dependencies (exact versions resolved at scaffold time and locked): runti
 - Palette, light: background #FAFAF9, surface #FFFFFF, ink #111111, ink-muted #6B6B6B, hairline rgba(17,17,17,.15), accent (single) #0F6E56 clinical green, warning #B7791F, danger #B42318, done fill #0F6E56 at 100% on belt cells with white glyph. Dark (theatre mode): background #121212, surface #1A1A1A, ink #F2F2F2, muted #9A9A9A, same accent/warning/danger lightened to pass 4.5:1.
 - Type: system sans (`system-ui, -apple-system, Roboto`), sizes 12/14/16/20/28, weight 400 and 600 only; timers and kennel numbers in `ui-monospace, Roboto Mono` tabular figures.
 - Spacing scale 4/8/12/16/24/32. Touch targets 48 px minimum. Row height 88 px collapsed.
-- Belt: a strip of square cells, one per task, 24 px, 4 px gap; todo = hairline outline, current = 2 px accent outline, done = accent fill with a 1-frame 120 ms scale-in, skipped = hatched diagonal at 30%, overdue timed = danger outline pulsing once per 2 s (no continuous animation). Phase groups separated by 8 px. Two-letter uppercase code inside each cell (HA, BL, DM, PM, TH, IT, HT, C1..C4, FW, TO, PS, IN, CO, PH, IV, DC).
+- Belt: a strip of square cells, one per task, 24 px, 4 px gap; todo = hairline outline, current = 2 px accent outline, done = accent fill with a 1-frame 120 ms scale-in, skipped = hatched diagonal at 30%, overdue timed = danger outline pulsing once per 2 s (no continuous animation). Phase groups separated by 8 px. Inside each template cell an inline SVG line icon (16 px viewBox, currentColor, stroke 1.5; mapping in docs/CHANGES-2026-09.md section 5); custom cells keep the two-letter uppercase code from the label. The two-letter template codes (HA, BL, DM, PM, IT, HT, C1..C4, FW, TO, PS, IN, CO, PH, IV, DC) remain as identifiers in the shift summary.
 - Completion feedback: `navigator.vibrate(30)`, cell fill animation, row progress bar advance over 200 ms, optional 40 ms click sample (off by default). Belt complete: `vibrate([30,40,30])` and a 400 ms sweep of the row's progress bar. No modals, no toasts longer than 4 s, undo lives in the toast.
 - Motion: every animation under 400 ms, all disabled under `prefers-reduced-motion`.
 
