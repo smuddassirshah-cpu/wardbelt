@@ -203,7 +203,8 @@ export function browserWakeLockDeps(): WakeLockDeps;  // feature-detects navigat
 ### Status chip (`src/ui/PatientRow.tsx`)
 - After the name and species, `<Chip>` (neutral) with `Waiting`, `In theatre` or `Recovery` from
   `wardStatus(patient)`. Nothing when undefined. Visually-hidden prefix `Status ` for screen
-  readers. The chip must not push the row above 88 px; place it on the title line.
+  readers. The chip must not push the row above 88 px. It sits on the second header line, directly
+  under the name beside the species, because the name and the timer chip share the first line.
 
 ### Task icons (`src/ui/icons.tsx`, new; `src/ui/Belt.tsx`; `src/ui/format.ts`)
 - One inline SVG per template step, 16 x 16 viewBox, `stroke="currentColor"`, `fill="none"`,
