@@ -217,8 +217,11 @@ export function browserWakeLockDeps(): WakeLockDeps;  // feature-detects navigat
   the Playwright screenshot, use a bold digit inside a circle and record the choice in STATE.md.
 - Belt cells render the icon for template tasks; custom tasks keep the two-letter code.
   The done state keeps the white glyph on the accent fill (icon inherits `currentColor`).
-- Timer chip shows the full task label instead of the code (`Post-op check 1 in 04:30`); drop the
-  visually-hidden duplicate.
+- Timer chip shows the step icon (custom tasks: the two-letter code) followed by the countdown
+  (`[icon] in 04:30`), with the visually-hidden full task label kept for screen readers. A full
+  text label was tried first and truncated both the label and the patient name at 393 px, so it
+  is not used. The patient name takes priority in the row header: chips shrink or wrap inside
+  `row__side` before the name is truncated, and no chip is capped below its own content width.
 - `taskCode` stays for custom cells and the shift summary.
 
 ### Book discharge (`src/ui/PatientSheet.tsx`, `src/ui/app/actions.ts`, `src/ui/App.tsx`)
