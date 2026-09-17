@@ -1073,3 +1073,41 @@ verified directly: in that browser `new Date(2026, 2, 10).toLocaleDateString('en
   fixtures' names are the worst case). With real, shorter names both fit. If the orchestrator
   would rather the name were cut instead, the choice is the single `max-width` in the handset
   media query.
+
+**Fix round (verifier FAIL, 2026-09-17)**
+
+The verifier returned two findings and four notes; all six are fixed with a test each, at commit
+bf7a381. F1 (spec section 5 was amended for it): the full-label timer chip never fitted at 393 px,
+so the chip now carries the step's icon (custom tasks: the two-letter code) and the countdown,
+with the full task label in a visually-hidden span for screen readers, and the 22ch handset cap in
+`ui.css` is gone. Measuring the worst row showed the chip was not the only problem: with a text
+column beside a chip column, the widest line of each side competed, so the name had 33 px of the
+147 px it needed. The header is now two independent lines, each spending its own width: the name
+(and kennel) share line one with the countdown chip, and the species, the ward status chip, the
+procedure, the intake chip and the booked collection chip share line two. Both lines are 20 px, so
+the header is still 48 px and the row still 88 px, and the procedure is now the first text to give
+way; the name is cut short only after it. Measured on the gallery's full row (long name, status
+chip, intake, booked collection, overdue check) at 393 px: name 147/147, timer chip 133/133,
+status 78/78, intake 47/47, collection 97/97, procedure 48 of 100 (ellipsised), row 88 px. That
+row is now a Playwright regression test (`a full row at 393 px keeps the name and every chip
+whole`) which compares `scrollWidth` with `clientWidth` for the name and for all four chips. N1: a
+`type="time"` box sanitises a half-typed entry to `''`, so "Save intake" stored `none` and wiped a
+real intake; `readIntake` now reads `validity.badInput` and returns undefined for an incomplete
+entry, the sheet shows the validator's message and dispatches nothing, and the add form sends `''`
+to the validator, which rejects it with the same wording. N2: `NOTES_MAX` is imported from
+`@domain/validate` instead of being redeclared. N3: `take_out` is redrawn as three curved blades
+over a ground line and `pain_score` as a face above a ticked scale; both were checked in the
+regenerated screenshot. N5: `Platform.onPageHide` is new, `main.tsx` passes
+`window.addEventListener('pagehide', fn)` and the session subscribes `stop()` to it, so a
+discarded page releases the wake lock and the timer; the wiring is tested through the fake
+platform (the alternative, testing `main.tsx` itself, cannot be imported under Vitest because of
+`virtual:pwa-register`). F2: the README claims row now cites the handover rule and the renamed
+test. Gate re-run in the worktree: lint and prettier clean; typecheck clean; `Test Files 45 passed
+(45)`, `Tests 575 passed (575)`, coverage statements 99.23% (2087/2103), branches 97.35%
+(1396/1434), `src/domain` still at its 100% thresholds; build `index-*.js` 103.96 kB (gzip
+35.82 kB), css 15.25 kB (gzip 3.21 kB), sw 17.07 kB, precache 13 entries (136.72 KiB);
+`npm run test:e2e` 40 passed (1.2m), axe clean in both themes with the new header. Screenshots
+regenerated. The e2e run again used a scratch `PLAYWRIGHT_BROWSERS_PATH`, this time in the layout
+the verifier described (`chromium_headless_shell-1243/chrome-headless-shell-linux64/
+chrome-headless-shell` symlinked to the installed 1194 headless shell, plus `chromium-1243` and
+`ffmpeg-1011`), which launches cleanly.
