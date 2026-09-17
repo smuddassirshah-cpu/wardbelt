@@ -5,7 +5,7 @@
 // hour back, then an hour forward, with a visibility sweep after each jump. Assertions cover
 // the state clock, the board sort and urgency, the rendered timer chip, the stored due times
 // (unchanged), the single armed timer and the shift statistics window. Fixtures are synthetic.
-import { cleanup, render, screen } from '@testing-library/preact';
+import { cleanup, render } from '@testing-library/preact';
 import { afterEach, describe, expect, it } from 'vitest';
 import { shiftBounds } from '../../../src/domain/stats';
 import { templateTaskId } from '../../../src/domain/types';
@@ -50,8 +50,8 @@ function chipText(session: Session): string {
       onOpen={noop}
     />,
   );
-  const chip = screen.queryByText(/overdue|in \d\d:\d\d/);
-  return chip?.textContent ?? '';
+  const chip = document.querySelector('.chip--danger, .chip--warning');
+  return (chip?.textContent ?? '').replace(/\u00a0/g, ' ');
 }
 
 afterEach(() => {
@@ -65,7 +65,7 @@ describe('device clock jumps', () => {
     const before = boardRows(session.state.value);
     expect(before.map((r) => r.patient.id)).toEqual(['p-recovery', 'p-fresh']);
     expect(before[0]?.urgency).toBe('overdue');
-    expect(chipText(session)).toBe('C1 overdue 05:00');
+    expect(chipText(session)).toBe('Post-op check 1 overdue 05:00');
     const storedDue = session.state.value.patients['p-recovery']?.tasks.find(
       (t) => t.id === check1,
     )?.dueAt;
@@ -76,7 +76,7 @@ describe('device clock jumps', () => {
     }).not.toThrow();
     expect(session.state.value.now).toBe(FIXED_NOW_MS - 60 * MIN);
     expect(rowFor(session, 'p-recovery').urgency).toBe('intake');
-    expect(chipText(session)).toBe('C1 in 55:00');
+    expect(chipText(session)).toBe('Post-op check 1 in 55:00');
     expect(
       session.state.value.patients['p-recovery']?.tasks.find((t) => t.id === check1)?.dueAt,
     ).toBe(storedDue);
@@ -84,7 +84,7 @@ describe('device clock jumps', () => {
 
     platform.clock.advance(50 * MIN);
     expect(rowFor(session, 'p-recovery').urgency).toBe('due_soon');
-    expect(chipText(session)).toBe('C1 in 05:00');
+    expect(chipText(session)).toBe('Post-op check 1 in 05:00');
     platform.clock.advance(5 * MIN);
     expect(boardRows(session.state.value)[0]?.patient.id).toBe('p-recovery');
     expect(rowFor(session, 'p-recovery').urgency).toBe('overdue');
@@ -99,7 +99,7 @@ describe('device clock jumps', () => {
     const rows = boardRows(session.state.value);
     expect(rows[0]?.patient.id).toBe('p-recovery');
     expect(rows[0]?.urgency).toBe('overdue');
-    expect(chipText(session)).toBe('C1 overdue 65:00');
+    expect(chipText(session)).toBe('Post-op check 1 overdue 65:00');
     expect(platform.clock.pending()).toBe(1);
     await session.flush();
     expect(platform.repo.calls).toEqual([]);

@@ -2,13 +2,25 @@
 // Skip for unfinished tasks and a Note toggle for any task; notes save on blur through a last-saved
 // ref so blur followed by a Save tap never fires twice. The add-task form is validated at
 // this boundary with validateCustomTask (PLAN.md section 7); the datetime-local value is
-// handed to the validator as-is because it normalises local time to ISO UTC. Delete is an
-// inline two-step confirm, never window.confirm.
-import { validateCustomTask, parseIso, type CustomTaskInput } from '@domain/validate';
-import { type Iso, type Patient, type Task } from '@domain/types';
+// handed to the validator as-is because it normalises local time to ISO UTC. Intake reuses the
+// admission form's control and asks the same validator for the message, so there is one rule and
+// one wording; it is offered on active patients only, since the reducer ignores an intake change
+// on a discharged one. A booking is a local HH:MM on today's date turned into a UTC ISO stamp
+// (CHANGES-2026-09.md section 5); it does not discharge anyone, so the Discharge button below it
+// is untouched. Delete is an inline two-step confirm, never window.confirm.
+import {
+  NOTES_MAX,
+  validateCustomTask,
+  validatePatientForm,
+  parseIso,
+  type CustomTaskInput,
+} from '@domain/validate';
+import { type Intake, type Iso, type Patient, type Task } from '@domain/types';
 import { useId, useRef, useState } from 'preact/hooks';
+import { IntakeField, intakeValue } from './AddPatientSheet';
 import { ConfirmButton } from './ConfirmButton';
 import { Sheet } from './Sheet';
+import { TaskGlyph } from './icons';
 import {
   SPECIES_LABEL,
   cellClass,
@@ -16,7 +28,6 @@ import {
   classes,
   formatClock,
   isOverdue,
-  taskCode,
   toDatetimeLocal,
 } from './format';
 
@@ -31,6 +42,9 @@ export interface PatientSheetProps {
   onAddTask: (input: CustomTaskInput, afterTaskId?: string) => void;
   onSetNote: (taskId: string | undefined, note: string) => void;
   onSetTheatreReturn: (returnedAt: Iso) => void;
+  onSetIntake: (intake: Intake) => void;
+  /** An agreed collection time, or undefined to clear the booking. */
+  onBookDischarge: (bookedAt: Iso | undefined) => void;
   onDischarge: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -45,8 +59,27 @@ const SEX_LABEL: Readonly<Record<Patient['sex'], string>> = {
   unknown: 'Sex unknown',
 };
 
-const NOTE_MAX = 500;
 const LABEL_MAX = 60;
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+export const BOOKING_ERROR = 'Enter a collection time as HH:MM';
+
+/** Today's local date at the chosen HH:MM, as a UTC ISO stamp; undefined when it is not a time. */
+function bookingIso(raw: string | undefined, now: number): Iso | undefined {
+  const match = TIME_RE.exec((raw ?? '').trim());
+  if (match === null) {
+    return undefined;
+  }
+  const [, hh = '0', mm = '0'] = match;
+  const at = new Date(now);
+  at.setHours(Number(hh), Number(mm), 0, 0);
+  return at.toISOString();
+}
+
+/** The validator owns the intake rule and its wording; only its intake message is read here. */
+function intakeError(value: Intake): string | undefined {
+  const result = validatePatientForm({ intake: value });
+  return result.ok ? undefined : result.errors.intake;
+}
 
 function useCommit(initial: string, save: (value: string) => void) {
   const saved = useRef(initial);
@@ -94,7 +127,7 @@ function TaskRow({ task, current, now, onComplete, onSkip, onSetNote }: TaskRowP
         class={cellClass(cellState(task, current ? task.id : undefined), overdue)}
         aria-hidden="true"
       >
-        {taskCode(task)}
+        <TaskGlyph task={task} />
       </span>
       <div class="task__main">
         <div class={classes('task__label', task.status === 'skipped' && 'task__label--muted')}>
@@ -155,7 +188,7 @@ function TaskRow({ task, current, now, onComplete, onSkip, onSetNote }: TaskRowP
           <textarea
             id={noteId}
             class="field__input"
-            maxLength={NOTE_MAX}
+            maxLength={NOTES_MAX}
             defaultValue={task.note ?? ''}
             onBlur={(e) => {
               commit(e.currentTarget.value.trim());
@@ -282,6 +315,8 @@ export function PatientSheet(props: PatientSheetProps) {
     onAddTask,
     onSetNote,
     onSetTheatreReturn,
+    onSetIntake,
+    onBookDischarge,
     onDischarge,
     onDelete,
     onClose,
@@ -290,8 +325,15 @@ export function PatientSheet(props: PatientSheetProps) {
   const id = useId();
   const notesId = `${id}-notes`;
   const returnId = `${id}-return`;
+  const intakeId = `${id}-intake`;
+  const bookingId = `${id}-booking`;
   const [returnError, setReturnError] = useState<string | undefined>(undefined);
+  const [intakeMessage, setIntakeMessage] = useState<string | undefined>(undefined);
+  const [bookingOpen, setBookingOpen] = useState(false);
+  const [bookingError, setBookingError] = useState<string | undefined>(undefined);
   const returnInput = useRef<HTMLInputElement>(null);
+  const intakeInput = useRef<HTMLInputElement>(null);
+  const bookingInput = useRef<HTMLInputElement>(null);
   const notesInput = useRef<HTMLTextAreaElement>(null);
   const commitNotes = useCommit(patient.notes, (value) => {
     onSetNote(undefined, value);
@@ -308,6 +350,32 @@ export function PatientSheet(props: PatientSheetProps) {
     }
     setReturnError(undefined);
     onSetTheatreReturn(iso);
+  };
+
+  const saveIntake = () => {
+    const value = intakeValue(intakeInput.current?.value);
+    const message = intakeError(value);
+    setIntakeMessage(message);
+    if (message === undefined) {
+      onSetIntake(value);
+    }
+  };
+
+  const saveBooking = () => {
+    const iso = bookingIso(bookingInput.current?.value, now);
+    if (iso === undefined) {
+      setBookingError(BOOKING_ERROR);
+      return;
+    }
+    setBookingError(undefined);
+    setBookingOpen(false);
+    onBookDischarge(iso);
+  };
+
+  const clearBooking = () => {
+    setBookingError(undefined);
+    setBookingOpen(false);
+    onBookDischarge(undefined);
   };
 
   return (
@@ -390,7 +458,7 @@ export function PatientSheet(props: PatientSheetProps) {
             id={notesId}
             ref={notesInput}
             class="field__input"
-            maxLength={NOTE_MAX}
+            maxLength={NOTES_MAX}
             defaultValue={patient.notes}
             onBlur={(e) => {
               commitNotes(e.currentTarget.value.trim());
@@ -440,7 +508,77 @@ export function PatientSheet(props: PatientSheetProps) {
         </button>
       </section>
 
-      <section class="section" aria-label="Discharge and delete">
+      {!discharged && (
+        <section class="section" aria-label="Intake">
+          <IntakeField
+            id={intakeId}
+            defaultValue={patient.intake === 'none' ? '' : patient.intake}
+            error={intakeMessage}
+            inputRef={intakeInput}
+          />
+          <button type="button" class="btn" onClick={saveIntake}>
+            Save intake
+          </button>
+        </section>
+      )}
+
+      <section class="section" aria-label="Discharge">
+        {patient.dischargeBookedAt !== undefined && (
+          <p class="summary-line">
+            Booked for <span class="mono">{formatClock(patient.dischargeBookedAt)}</span>
+          </p>
+        )}
+        {!discharged && !bookingOpen && (
+          <div class="btn-row">
+            <button
+              type="button"
+              class="btn"
+              onClick={() => {
+                setBookingOpen(true);
+              }}
+            >
+              Book discharge
+            </button>
+          </div>
+        )}
+        {!discharged && bookingOpen && (
+          <>
+            <div class="field">
+              <label class="field__label" for={bookingId}>
+                Collection time
+              </label>
+              <input
+                id={bookingId}
+                ref={bookingInput}
+                class="field__input mono"
+                type="time"
+                defaultValue={
+                  patient.dischargeBookedAt === undefined
+                    ? ''
+                    : formatClock(patient.dischargeBookedAt)
+                }
+                aria-invalid={bookingError !== undefined ? 'true' : undefined}
+                aria-describedby={bookingError !== undefined ? `${bookingId}-error` : undefined}
+              />
+              {bookingError !== undefined && (
+                <p class="field__error" id={`${bookingId}-error`}>
+                  {bookingError}
+                </p>
+              )}
+              <p class="field__hint">The collection time agreed with the owner, today.</p>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn btn--primary" onClick={saveBooking}>
+                Save booking
+              </button>
+              {patient.dischargeBookedAt !== undefined && (
+                <button type="button" class="btn" onClick={clearBooking}>
+                  Clear booking
+                </button>
+              )}
+            </div>
+          </>
+        )}
         <div class="btn-row">
           <button
             type="button"

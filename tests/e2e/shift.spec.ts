@@ -2,14 +2,15 @@
 // the Pixel 5 profile. The Playwright clock is installed inside a shift and fast-forwarded
 // between the four post-op checks so their on-time or late status is fixed by construction:
 // check 1 at +14 (due +15), check 2 at +31 (due +30, inside the 3-minute grace), check 3 at
-// +49 (due +45, past grace) and check 4 at +60 (due +60). The median admit-to-discharge time
+// +49 (due +45, past grace) and check 4 at +60 (due +60), all measured from the theatre
+// handover, which is what schedules them. The median admit-to-discharge time
 // is computed from the timestamps the app actually stored, because seconds of real time pass
 // between fast-forwards. Names are synthetic placeholders.
 import { expect, test, type Page } from '@playwright/test';
 import {
   addPatient,
   completeCurrent,
-  completeThroughTheatre,
+  completeThroughHandover,
   closeSheet,
   dischargePatient,
   nav,
@@ -24,6 +25,10 @@ const A = 'Fixture Alpha';
 const B = 'Fixture Beta';
 const C = 'Fixture Gamma';
 const MINUTE = 60_000;
+// The comma in the weekday is an ICU version difference between Chromium builds, so the shift
+// label is matched with it optional rather than pinned to one browser's formatting.
+const SHIFT_TUE = /^Shift from 04:00 Tue,? 10 Mar$/;
+const SHIFT_WED = /^Shift from 04:00 Wed,? 11 Mar$/;
 
 /** Mirrors src/ui/format.ts formatMinutes. */
 function formatMinutes(min: number): string {
@@ -45,22 +50,19 @@ test('a scripted shift produces the expected stats, then resets after 04:00', as
   await addPatient(page, B, 'Dental', { intake: '09:00' });
   await addPatient(page, C, 'Lump removal', { intake: '10:00' });
 
-  await completeThroughTheatre(page, A);
-  await expect(row(page, A).locator('.chip--warning')).toHaveText(/C1 in 15:00/);
+  await completeThroughHandover(page, A);
+  await expect(row(page, A).locator('.chip--warning')).toHaveText(/Post-op check 1\sin 15:00/);
 
   await page.clock.fastForward(14 * MINUTE);
-  const sheetA = await openSheet(page, A);
-  await taskItem(sheetA, 'Handover from theatre')
-    .getByRole('button', { name: 'Skip Handover from theatre' })
-    .click();
-  await closeSheet(sheetA);
   await completeCurrent(row(page, A), 'Post-op check 1');
 
   await page.clock.fastForward(17 * MINUTE);
   await completeCurrent(row(page, A), 'Post-op check 2');
 
   await page.clock.fastForward(18 * MINUTE);
-  await expect(row(page, A).locator('.chip--danger')).toHaveText(/C3 overdue 04:\d\d/);
+  await expect(row(page, A).locator('.chip--danger')).toHaveText(
+    /Post-op check 3\soverdue 04:\d\d/,
+  );
   await completeCurrent(row(page, A), 'Post-op check 3');
 
   await page.clock.fastForward(11 * MINUTE);
@@ -91,7 +93,7 @@ test('a scripted shift produces the expected stats, then resets after 04:00', as
 
   await nav(page).getByRole('button', { name: 'Summary' }).click();
   const summary = page.getByRole('dialog', { name: 'Shift summary' });
-  await expect(summary.getByText('Shift from 04:00 Tue 10 Mar')).toBeVisible();
+  await expect(summary.getByText(SHIFT_TUE)).toBeVisible();
   await expect(summary.locator('dt')).toHaveText([
     'Tasks completed',
     'Tasks skipped',
@@ -103,7 +105,7 @@ test('a scripted shift produces the expected stats, then resets after 04:00', as
   ]);
   expect(await summaryValues(page)).toEqual([
     '12',
-    '2',
+    '1',
     '75%',
     '2',
     '3',
@@ -112,7 +114,7 @@ test('a scripted shift produces the expected stats, then resets after 04:00', as
   ]);
 
   await page.clock.fastForward(18 * 60 * MINUTE);
-  await expect(summary.getByText('Shift from 04:00 Wed 11 Mar')).toBeVisible();
+  await expect(summary.getByText(SHIFT_WED)).toBeVisible();
   expect(await summaryValues(page)).toEqual(['0', '0', 'n/a', '0', '0', '0', 'n/a']);
   await closeSheet(summary);
   await expect(row(page, C)).toBeVisible();

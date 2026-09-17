@@ -108,7 +108,7 @@ test('current belt cell is a 48 px button around a 24 px square', async ({ page 
 test('patient rows are 88 px collapsed', async ({ page }) => {
   await openGallery(page);
   const rows = page.locator('#rows .row');
-  await expect(rows).toHaveCount(6);
+  await expect(rows).toHaveCount(7);
   for (const box of await rows.evaluateAll((els) =>
     els.map((el) => el.getBoundingClientRect().height),
   )) {
@@ -116,32 +116,57 @@ test('patient rows are 88 px collapsed', async ({ page }) => {
   }
 });
 
-test('timer chips keep the space between code and countdown', async ({ page }) => {
+// The space between a timer chip's label and its countdown is non-breaking, so that it survives
+// the label and the countdown being separate flex items; \s and a normalised innerText match it.
+test('timer chips keep the space between the label and the countdown', async ({ page }) => {
   await openGallery(page);
-  await expect(page.locator('#rows .chip--danger').first()).toHaveText(/C1 overdue 05:00/);
-  await expect(page.locator('#rows .chip--warning').first()).toHaveText(/BA in 25:00/);
+  await expect(page.locator('#rows .chip--danger').first()).toHaveText(
+    /Post-op check 1\soverdue 05:00/,
+  );
+  await expect(page.locator('#rows .chip--warning').first()).toHaveText(/Bandage check\sin 25:00/);
   const rendered = await page.evaluate(() =>
     Array.from(
       document.querySelectorAll<HTMLElement>('#rows .chip--danger, #rows .chip--warning'),
-    ).map((el) => el.innerText),
+    ).map((el) => ({
+      text: el.textContent,
+      visible: el.innerText.replace(/\s+/g, ' '),
+    })),
   );
-  expect(rendered).toHaveLength(2);
-  expect(rendered[0]).toContain('C1 overdue 05:00');
-  expect(rendered[1]).toContain('BA in 25:00');
+  expect(rendered[0]?.text).toContain('Post-op check 1\u00a0overdue 05:00');
+  expect(rendered[0]?.visible).toContain('Post-op check 1 overdue 05:00');
+  expect(rendered[1]?.text).toContain('Bandage check\u00a0in 25:00');
+  expect(rendered[1]?.visible).toContain('Bandage check in 25:00');
+});
+
+test('every template cell carries its icon and custom cells keep their letters', async ({
+  page,
+}) => {
+  await openGallery(page);
+  const belts = page.locator('#belt .belt');
+  await expect(belts).toHaveCount(7);
+  await expect(belts.nth(0).locator('.belt__square svg[data-icon]')).toHaveCount(18);
+  await expect(belts.nth(4).locator('.belt__square')).toHaveCount(19);
+  await expect(belts.nth(4).locator('.belt__square', { hasText: 'BA' })).toHaveCount(1);
+  const glyph = await belts.nth(0).locator('svg[data-icon="handover_admit"]').boundingBox();
+  expect(glyph?.width).toBe(16);
+  expect(glyph?.height).toBe(16);
+  const colour = await page
+    .locator('#belt .belt__square--done svg')
+    .first()
+    .evaluate((el) => getComputedStyle(el).color);
+  expect(colour).toBe('rgb(255, 255, 255)');
 });
 
 test('header chips stay inside the 48 px header and clear of the belt', async ({ page }) => {
   await openGallery(page);
   const rows = page.locator('#rows .row');
-  await expect(rows).toHaveCount(6);
+  await expect(rows).toHaveCount(7);
   const geometry = await rows.evaluateAll((els) =>
     els.map((row) => {
       const header = row.querySelector('.row__header')?.getBoundingClientRect();
       const belt = row.querySelector('.row__belt')?.getBoundingClientRect();
       const square = row.querySelector('.belt__square')?.getBoundingClientRect();
-      const chips = Array.from(row.querySelectorAll('.row__side .chip')).map((c) =>
-        c.getBoundingClientRect(),
-      );
+      const chips = Array.from(row.querySelectorAll('.chip')).map((c) => c.getBoundingClientRect());
       return {
         chips: chips.length,
         headerHeight: header?.height,

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/preact';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PatientRow } from '../../../src/ui/PatientRow';
+import { formatClock } from '../../../src/ui/format';
 import { templateTaskId } from '../../../src/domain/types';
 import {
   FIXED_NOW_ISO,
@@ -8,22 +9,39 @@ import {
   isoPlus,
   patientDischarged,
   patientFresh,
+  patientInTheatre,
+  patientPreOp,
   patientRecovery,
   patientWithCustomTask,
 } from '../../fixtures/synthetic';
+import type { Patient } from '../../../src/domain/types';
+
+function row(patient: Patient) {
+  return render(
+    <PatientRow
+      patient={patient}
+      now={FIXED_NOW_MS}
+      urgency="none"
+      onCompleteCurrent={vi.fn()}
+      onOpen={vi.fn()}
+    />,
+  );
+}
 
 afterEach(cleanup);
 
 /**
- * The chip is a flex container, so the code and the countdown must live in one inline element:
- * as separate flex items the countdown's leading space would collapse ("C1overdue 05:00").
+ * The label and the countdown are separate flex items so only the label is ever cut short, so
+ * the space between them must be non-breaking: an ordinary one would collapse away.
  */
-function visibleText(chip: Element | null): string | undefined {
+function visibleText(chip: Element | null): string {
   const inFlow = Array.from(chip?.children ?? []).filter(
     (el) => !el.classList.contains('visually-hidden'),
   );
-  expect(inFlow).toHaveLength(1);
-  return inFlow[0]?.textContent ?? undefined;
+  expect(inFlow).toHaveLength(2);
+  const text = inFlow.map((el) => el.textContent).join('');
+  expect(text).toContain('\u00a0');
+  return text.replace(/\u00a0/g, ' ');
 }
 
 describe('PatientRow', () => {
@@ -46,6 +64,7 @@ describe('PatientRow', () => {
     expect(header.textContent).toContain('K1');
     expect(header.textContent).toContain('Lump removal');
     expect(header.textContent).toContain('Intake 08:00');
+    expect(header.textContent).toContain('Status Waiting');
     expect(header.querySelector('.chip--accent')).not.toBeNull();
     fireEvent.click(header);
     expect(onOpen).toHaveBeenCalledTimes(1);
@@ -71,9 +90,10 @@ describe('PatientRow', () => {
       />,
     );
     const chip = container.querySelector('.chip--danger');
-    expect(chip?.textContent).toBe('Post-op check 1 C1 overdue 05:00');
+    expect((chip?.textContent ?? '').replace(/\u00a0/g, ' ')).toBe('Post-op check 1 overdue 05:00');
+    expect(chip?.querySelector('.chip__label')?.textContent).toBe('Post-op check 1');
     expect(chip?.classList.contains('mono')).toBe(true);
-    expect(visibleText(chip)).toBe('C1 overdue 05:00');
+    expect(visibleText(chip)).toBe('Post-op check 1 overdue 05:00');
     expect(container.querySelector('.row')?.getAttribute('data-urgency')).toBe('overdue');
     expect(container.querySelector('.chip--accent')).toBeNull();
   });
@@ -92,8 +112,8 @@ describe('PatientRow', () => {
       />,
     );
     const chip = container.querySelector('.chip--warning');
-    expect(chip?.textContent).toBe('Bandage check BA in 25:00');
-    expect(visibleText(chip)).toBe('BA in 25:00');
+    expect((chip?.textContent ?? '').replace(/\u00a0/g, ' ')).toBe('Bandage check in 25:00');
+    expect(visibleText(chip)).toBe('Bandage check in 25:00');
   });
 
   it('shows no timer chip without nextDue or when the task is unknown', () => {
@@ -121,6 +141,62 @@ describe('PatientRow', () => {
     expect(container.querySelectorAll('.chip--danger, .chip--warning')).toHaveLength(0);
   });
 
+  it('shows the ward status chip for every status and none once discharged', () => {
+    const cases: [Patient, string][] = [
+      [patientFresh(), 'Waiting'],
+      [patientPreOp(), 'Waiting'],
+      [patientInTheatre(), 'Waiting'],
+      [patientRecovery(), 'Recovery'],
+    ];
+    for (const [patient, label] of cases) {
+      const { container, unmount } = row(patient);
+      const chip = container.querySelector('.row__title .chip');
+      expect(chip?.textContent, patient.id).toBe(`Status ${label}`);
+      unmount();
+    }
+    const theatre = patientInTheatre();
+    const settled = theatre.tasks.map((t) =>
+      t.key === 'in_theatre' ? { ...t, status: 'done' as const } : t,
+    );
+    const { container, unmount } = row({ ...theatre, tasks: settled });
+    expect(container.querySelector('.row__title .chip')?.textContent).toBe('Status In theatre');
+    unmount();
+    expect(row(patientDischarged()).container.querySelector('.row__title .chip')).toBeNull();
+  });
+
+  it('shows the booked collection chip, in warning once the time has passed', () => {
+    const p = patientPreOp();
+    const later = row({ ...p, dischargeBookedAt: isoPlus(FIXED_NOW_ISO, 30) });
+    const chip = later.container.querySelector('.row__side-line .chip.mono:last-child');
+    expect(chip?.textContent).toBe(`Home ${formatClock(isoPlus(FIXED_NOW_ISO, 30))}`);
+    expect(chip?.classList.contains('chip--warning')).toBe(false);
+    later.unmount();
+
+    const past = row({ ...p, dischargeBookedAt: isoPlus(FIXED_NOW_ISO, -1) });
+    expect(past.container.querySelector('.row__side-line .chip--warning')?.textContent).toBe(
+      `Home ${formatClock(isoPlus(FIXED_NOW_ISO, -1))}`,
+    );
+    expect(past.container.querySelectorAll('.row__side .chip')).toHaveLength(2);
+    past.unmount();
+
+    const gone = row({
+      ...patientDischarged(),
+      dischargeBookedAt: isoPlus(FIXED_NOW_ISO, -1),
+    });
+    expect(gone.container.querySelector('.row__side .chip')).toBeNull();
+  });
+
+  it('renders a belt with no cells as an empty belt, never as a complete one', () => {
+    const { container } = row({ ...patientFresh(), tasks: [] });
+    expect(container.querySelectorAll('.belt__square')).toHaveLength(0);
+    const fill = container.querySelector<HTMLElement>('.row__progress-fill');
+    expect(fill?.style.width).toBe('0%');
+    expect(fill?.classList.contains('row__progress-fill--complete')).toBe(false);
+    expect(screen.getByRole('group').getAttribute('aria-label')).toBe(
+      '0 of 0 done, nothing left to do',
+    );
+  });
+
   it('sizes the progress bar from done plus skipped and sweeps when complete', () => {
     const recovery = patientRecovery();
     const { container } = render(
@@ -133,7 +209,7 @@ describe('PatientRow', () => {
       />,
     );
     const fill = container.querySelector<HTMLElement>('.row__progress-fill');
-    expect(fill?.style.width).toBe(`${(7 / 19) * 100}%`);
+    expect(fill?.style.width).toBe(`${(6 / 18) * 100}%`);
     expect(fill?.classList.contains('row__progress-fill--complete')).toBe(false);
 
     const done = patientDischarged();

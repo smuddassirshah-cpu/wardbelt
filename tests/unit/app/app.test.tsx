@@ -241,6 +241,36 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Show discharged (1)' })).toBeTruthy();
   });
 
+  it('saves an intake and books a discharge from the sheet, and shows both on the row', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientFresh()] };
+    const { session, router } = await mount({ repo });
+    router.navigate({ kind: 'patient', id: 'p-fresh' });
+    const sheet = await screen.findByRole('dialog', { name: 'Fixture Dog One' });
+
+    fireEvent.click(within(sheet).getByRole('button', { name: '09:00' }));
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save intake' }));
+    expect(session.state.value.patients['p-fresh']?.intake).toBe('09:00');
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Book discharge' }));
+    fireEvent.input(within(sheet).getByLabelText('Collection time'), {
+      target: { value: '15:30' },
+    });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save booking' }));
+    const booked = session.state.value.patients['p-fresh']?.dischargeBookedAt;
+    expect(booked).toBeDefined();
+    expect(new Date(booked ?? '').getHours()).toBe(15);
+    expect(await screen.findByText('Discharge booked for 15:30')).toBeTruthy();
+    expect(within(sheet).getByText('Booked for')).toBeTruthy();
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(screen.getByText('Home 15:30')).toBeTruthy();
+    expect(must(document.querySelector('.row__title .chip')).textContent).toBe('Status Waiting');
+  });
+
   it('shows the weekly export nudge, exports from it, and dismisses it for the session', async () => {
     const repo = fakeRepo();
     repo.loadResult = { ...emptyLoad(), patients: [patientFresh()] };

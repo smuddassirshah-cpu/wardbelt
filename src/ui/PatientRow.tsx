@@ -1,13 +1,18 @@
 // Decision notes: the row is 88 px collapsed: 8 px padding, a 48 px header button, a 24 px
 // belt, 7 px padding and the 1 px hairline, with the 2 px progress bar on the bottom edge.
-// Urgency and the next due task are props; the row only formats them. The timer chip reads
-// from nextDue and now; its
-// code and countdown share one inline span because the chip is a flex container and a bare
-// text node beside the code span would lose its leading space as a separate flex item.
+// Urgency and the next due task are props; the row only formats them. The ward status chip sits
+// on the title line, where the fixed 48 px header height keeps it from growing the row. The
+// side column is capped at two lines for the same reason, so the intake chip and the booked
+// collection chip share the second line rather than stacking to 68 px. The timer chip names the
+// task in full (CHANGES-2026-09.md section 5); its label and its countdown are separate spans, so
+// a narrow screen cuts the label short rather than the countdown or the patient's name. The
+// countdown starts with a non-breaking space, because an ordinary leading space at the start of a
+// flex item is collapsed away and the chip would read "check 2in 04:30".
+import { wardStatus, type WardStatus } from '@domain/status';
 import { type Iso, type Patient } from '@domain/types';
 import { Belt } from './Belt';
 import { Chip } from './Chip';
-import { SPECIES_LABEL, classes, formatCountdown, progressOf, taskCode } from './format';
+import { SPECIES_LABEL, classes, formatClock, formatCountdown, progressOf } from './format';
 
 export type Urgency = 'overdue' | 'due_soon' | 'intake' | 'none';
 
@@ -28,6 +33,38 @@ export interface PatientRowProps {
   readOnly?: boolean | undefined;
 }
 
+export const WARD_STATUS_LABEL: Readonly<Record<WardStatus, string>> = Object.freeze({
+  waiting: 'Waiting',
+  theatre: 'In theatre',
+  recovery: 'Recovery',
+});
+
+function StatusChip({ patient }: Pick<PatientRowProps, 'patient'>) {
+  const status = wardStatus(patient);
+  if (status === undefined) {
+    return null;
+  }
+  return (
+    <Chip>
+      <span class="visually-hidden">{'Status '}</span>
+      {WARD_STATUS_LABEL[status]}
+    </Chip>
+  );
+}
+
+/** Agreed collection time: neutral until it passes, then warning. Hidden once discharged. */
+function BookedChip({ patient, now }: Pick<PatientRowProps, 'patient' | 'now'>) {
+  const booked = patient.dischargeBookedAt;
+  if (booked === undefined || patient.status === 'discharged') {
+    return null;
+  }
+  return (
+    <Chip tone={Date.parse(booked) <= now ? 'warning' : 'neutral'} mono>
+      {`Home ${formatClock(booked)}`}
+    </Chip>
+  );
+}
+
 function TimerChip({
   patient,
   nextDue,
@@ -42,14 +79,10 @@ function TimerChip({
   }
   const remaining = Date.parse(nextDue.dueAt) - now;
   const overdue = remaining <= 0;
-  const code = taskCode(task);
   return (
     <Chip tone={overdue ? 'danger' : 'warning'} mono>
-      <span class="visually-hidden">{`${task.label} `}</span>
-      <span>
-        <span aria-hidden="true">{code}</span>
-        {overdue ? ` overdue ${formatCountdown(remaining)}` : ` in ${formatCountdown(remaining)}`}
-      </span>
+      <span class="chip__label">{task.label}</span>
+      <span>{`\u00a0${overdue ? 'overdue' : 'in'} ${formatCountdown(remaining)}`}</span>
     </Chip>
   );
 }
@@ -66,6 +99,8 @@ export function PatientRow({
 }: PatientRowProps) {
   const progress = progressOf(patient.tasks);
   const pct = progress.total === 0 ? 0 : (progress.done / progress.total) * 100;
+  const intake = patient.intake !== 'none';
+  const booked = patient.dischargeBookedAt !== undefined && patient.status !== 'discharged';
   return (
     <article class="row" data-urgency={urgency}>
       <button type="button" class="row__header" disabled={readOnly} onClick={onOpen}>
@@ -73,17 +108,23 @@ export function PatientRow({
           <span class="row__title">
             <span class="row__name">{patient.name}</span>
             <span class="row__species">{SPECIES_LABEL[patient.species]}</span>
+            <StatusChip patient={patient} />
             {patient.kennel !== '' && <span class="row__kennel">{patient.kennel}</span>}
           </span>
           <span class="row__procedure">{patient.procedure}</span>
         </span>
         <span class="row__side">
           <TimerChip patient={patient} nextDue={nextDue} now={now} />
-          {patient.intake !== 'none' && (
-            <Chip tone={urgency === 'intake' ? 'accent' : 'neutral'} mono>
-              <span class="visually-hidden">{'Intake '}</span>
-              {patient.intake}
-            </Chip>
+          {(intake || booked) && (
+            <span class="row__side-line">
+              {intake && (
+                <Chip tone={urgency === 'intake' ? 'accent' : 'neutral'} mono>
+                  <span class="visually-hidden">{'Intake '}</span>
+                  {patient.intake}
+                </Chip>
+              )}
+              <BookedChip patient={patient} now={now} />
+            </span>
           )}
         </span>
       </button>

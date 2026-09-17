@@ -8,6 +8,10 @@
 // vibration only. The transient banner carries platform errors (notifier, feedback, service
 // worker, a rejected write chain) and clears itself after a few seconds. Actions are ignored
 // until the store has hydrated, so nothing can be written and then overwritten by the load.
+// The due tone is played from the session rather than the notifier's own deps because it is
+// gated by the Sound setting, which is read at call time; it sounds in both notifier branches, so
+// turning notifications off still leaves an audible alert. The opt-in wake lock is built once and
+// driven by an effect on the Keep screen on setting, and `stop` releases it with the scheduler.
 // The session's dispatch reports whether a record changed, not whether `now` moved (the store
 // republishes on every action), so purge, undo and delete can tell a no-op apart.
 // Boot runs one PURGE_DISCHARGED (PLAN.md section 5 auto-purge) through the normal diff path.
@@ -17,7 +21,7 @@
 // signal dismissed for the session only.
 import { isBeltComplete } from '@domain/patient';
 import { shiftStats, type ShiftStats } from '@domain/stats';
-import type { Action, Patient, PatientForm, Settings, State } from '@domain/types';
+import type { Action, Intake, Iso, Patient, PatientForm, Settings, State } from '@domain/types';
 import type { CustomTaskInput } from '@domain/validate';
 import type { Clock } from '@scheduler/clock';
 import {
@@ -27,10 +31,12 @@ import {
   type NotifyDeps,
 } from '@scheduler/notify';
 import { createTimers, type Notifier } from '@scheduler/timers';
+import { browserWakeLockDeps, createWakeLock } from '@scheduler/wakelock';
 import type { Repo, RepoOptions, StorageNotice } from '@store/repo';
 import { buildExport, exportRawStore, parseImport, serialiseExport } from '@store/transfer';
 import { computed, effect, signal, type ReadonlySignal, type Signal } from '@preact/signals';
-import { beltCompleteFeedback, completionFeedback } from '../feedback';
+import { beltCompleteFeedback, completionFeedback, dueTone } from '../feedback';
+import { formatClock } from '../format';
 import type { NotificationState, StorageMode } from '../Settings';
 import { applyTheme } from '../theme';
 import { createActionFactory, dischargeIsUndoable } from './actions';
@@ -96,6 +102,8 @@ export interface SessionActions {
   addTask: (patientId: string, input: CustomTaskInput, afterTaskId?: string) => void;
   setNote: (patientId: string, taskId: string | undefined, note: string) => void;
   setTheatreReturn: (patientId: string, returnedAt: string) => void;
+  setIntake: (patientId: string, intake: Intake) => void;
+  bookDischarge: (patientId: string, bookedAt: Iso | undefined) => void;
   discharge: (patientId: string) => void;
   deletePatient: (patientId: string) => void;
   setSettings: (settings: Partial<Settings>) => void;
@@ -136,6 +144,8 @@ export interface Session {
   start: () => Promise<void>;
   /** Resolves when every write queued so far has been submitted. */
   flush: () => Promise<void>;
+  /** Tears the session down: stops the scheduler, releases the wake lock, drops the effects. */
+  stop: () => void;
 }
 
 export function createSession(platform: Platform): Session {
@@ -179,7 +189,21 @@ export function createSession(platform: Platform): Session {
   const store = createStore({ repo: repoPromise, clock, onError: transient });
   const { state } = store;
 
-  const notifier = createNotifier({ ...platform.notifyDeps, onError: transient });
+  /** Reads the Sound setting at call time, so a change takes effect on the next due batch. */
+  const playDueTone = (): void => {
+    dueTone({
+      sound: state.value.settings.sound,
+      onError: (e: unknown) => {
+        transient(describeError(e));
+      },
+    });
+  };
+
+  const notifier = createNotifier({
+    ...platform.notifyDeps,
+    sound: playDueTone,
+    onError: transient,
+  });
   const notificationState = signal<NotificationState>(notifier.state());
   const gated: Notifier = {
     due: (tasks) => {
@@ -187,6 +211,7 @@ export function createSession(platform: Platform): Session {
         notifier.due(tasks);
       } else if (tasks.length > 0) {
         notifier.vibrate([...DUE_VIBRATION]);
+        playDueTone();
       }
     },
   };
@@ -199,9 +224,19 @@ export function createSession(platform: Platform): Session {
   store.subscribe(() => {
     timers.reschedule();
   });
-  effect(() => {
-    applyTheme(state.value.settings.theme);
-  });
+  const wakeLock = createWakeLock({ ...browserWakeLockDeps(), onError: transient });
+  const disposers = [
+    effect(() => {
+      applyTheme(state.value.settings.theme);
+    }),
+    effect(() => {
+      if (state.value.settings.keepScreenOn) {
+        wakeLock.enable();
+      } else {
+        wakeLock.disable();
+      }
+    }),
+  ];
 
   const sw = setupServiceWorker(platform.registerSw, transient, platform.swSupported);
 
@@ -295,6 +330,15 @@ export function createSession(platform: Platform): Session {
     },
     setTheatreReturn: (patientId, returnedAt) => {
       dispatch(factory.setTheatreReturn(patientId, returnedAt));
+    },
+    setIntake: (patientId, intake) => {
+      dispatch(factory.setIntake(patientId, intake));
+    },
+    bookDischarge: (patientId, bookedAt) => {
+      if (!dispatch(factory.bookDischarge(patientId, bookedAt)) || bookedAt === undefined) {
+        return;
+      }
+      showToast(`Discharge booked for ${formatClock(bookedAt)}`);
     },
     discharge: (patientId) => {
       const patient = state.value.patients[patientId];
@@ -462,5 +506,12 @@ export function createSession(platform: Platform): Session {
       ready.value = true;
     },
     flush: () => store.flush(),
+    stop: () => {
+      timers.stop();
+      wakeLock.disable();
+      for (const dispose of disposers) {
+        dispose();
+      }
+    },
   };
 }

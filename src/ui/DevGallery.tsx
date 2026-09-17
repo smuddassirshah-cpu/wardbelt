@@ -4,7 +4,8 @@
 // of it at once. Current task ids are fixture facts written down here, not computed, because
 // the UI never derives the current task. The patient sheet renders four times: the recovery
 // patient with and without undo, the custom-task patient (task note) given a synthetic owner
-// phone (tel: link), and the discharged patient (Discharge disabled with its time). The theme
+// phone (tel: link), the patient with a booked collection, and the discharged patient (Discharge
+// disabled with its time). The theme
 // switch writes data-theme on <html>; a theme query parameter (search string or after the
 // hash) preselects it.
 import { validatePatientForm } from '@domain/validate';
@@ -81,11 +82,23 @@ function variants(): Variant[] {
       },
     },
     {
-      title: 'Custom task due soon',
-      patient: custom,
+      title: 'Custom task due soon, collection booked',
+      patient: { ...custom, dischargeBookedAt: isoPlus(FIXED_NOW_ISO, 90) },
       currentTaskId: templateTaskId('p-custom', 'check_1'),
       urgency: 'due_soon',
       nextDue: { taskId: 'p-custom:custom:1', dueAt: isoPlus(FIXED_NOW_ISO, 25) },
+    },
+    {
+      title: 'Discharge booked, collection overdue',
+      patient: {
+        ...patientFresh(),
+        id: 'p-booked',
+        name: 'Fixture Dog Five',
+        dischargeBookedAt: isoPlus(FIXED_NOW_ISO, -35),
+      },
+      currentTaskId: templateTaskId('p-fresh', 'handover_admit'),
+      urgency: 'none',
+      nextDue: undefined,
     },
     {
       title: 'Complete and discharged',
@@ -142,7 +155,8 @@ export function DevGallery() {
   const items = variants();
   const recovery = items[3];
   const custom = items[4];
-  const discharged = items[5];
+  const booked = items[5];
+  const discharged = items[6];
   const sheetHandlers = {
     now: FIXED_NOW_MS,
     onComplete: noop,
@@ -151,6 +165,8 @@ export function DevGallery() {
     onAddTask: noop,
     onSetNote: noop,
     onSetTheatreReturn: noop,
+    onSetIntake: noop,
+    onBookDischarge: noop,
     onDischarge: noop,
     onDelete: noop,
     onClose: noop,
@@ -265,6 +281,17 @@ export function DevGallery() {
               />
             </>
           )}
+          {booked !== undefined && (
+            <>
+              <h3 class="gallery__label">Discharge booked</h3>
+              <PatientSheet
+                {...sheetHandlers}
+                patient={booked.patient}
+                currentTaskId={booked.currentTaskId}
+                canUndo={false}
+              />
+            </>
+          )}
           {discharged !== undefined && (
             <>
               <h3 class="gallery__label">Discharged</h3>
@@ -359,11 +386,18 @@ export function DevGallery() {
         <div class="btn-row">
           <Chip>Neutral</Chip>
           <Chip tone="accent">Accent</Chip>
+          <Chip>Waiting</Chip>
+          <Chip>In theatre</Chip>
+          <Chip>Recovery</Chip>
+          <Chip mono>Home 15:30</Chip>
           <Chip tone="warning" mono>
-            C2 in 04:12
+            Home 09:30
+          </Chip>
+          <Chip tone="warning" mono>
+            Post-op check 2 in 04:12
           </Chip>
           <Chip tone="danger" mono>
-            C1 overdue 03:10
+            Post-op check 1 overdue 03:10
           </Chip>
         </div>
       </Section>

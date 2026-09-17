@@ -25,6 +25,8 @@ import {
   patientFresh,
   patientRecovery,
 } from '../../fixtures/synthetic';
+import { resetAudioForTests } from '../../../src/ui/feedback';
+import { formatClock } from '../../../src/ui/format';
 import { fakePlatform, fakeRepo, flushMicrotasks, type FakePlatformOptions } from './helpers';
 
 async function booted(options: FakePlatformOptions = {}) {
@@ -525,5 +527,157 @@ describe('settings, transfer and scheduler wiring', () => {
     session.reloadForUpdate();
     expect(platform.sw.update).toHaveBeenCalledWith(true);
     expect(session.version).toBe('test');
+  });
+});
+
+describe('alerts and the wake lock', () => {
+  class FakeOscillator {
+    frequency = { value: 0 };
+    connect = () => this;
+    start = () => undefined;
+    stop = () => undefined;
+  }
+
+  /** Counts every oscillator the shared lazy context creates, so tones can be counted. */
+  function stubAudio(): { notes: FakeOscillator[] } {
+    const notes: FakeOscillator[] = [];
+    class FakeAudioContext {
+      state = 'running';
+      currentTime = 0;
+      destination = {};
+      resume = () => Promise.resolve();
+      createOscillator() {
+        const osc = new FakeOscillator();
+        notes.push(osc);
+        return osc;
+      }
+      createGain() {
+        return { gain: { value: 0 }, connect: () => undefined };
+      }
+    }
+    vi.stubGlobal('AudioContext', FakeAudioContext);
+    resetAudioForTests();
+    return { notes };
+  }
+
+  afterEach(() => {
+    resetAudioForTests();
+  });
+
+  it('plays the due tone with notifications off and on, and only when Sound is on', async () => {
+    const vibrate = vi.fn(() => true);
+    const { notes } = stubAudio();
+    const showNotification = vi.fn(() => Promise.resolve());
+    const getRegistration = vi.fn(() => Promise.resolve({ showNotification }));
+    const notification = {
+      permission: 'granted' as NotificationPermission,
+      requestPermission: vi.fn(() => Promise.resolve('granted' as NotificationPermission)),
+    };
+    const repo = fakeRepo();
+    const recovery = patientRecovery();
+    repo.loadResult = { ...emptyLoad(), patients: [recovery] };
+    const { platform, session } = await booted({
+      repo,
+      startMs: FIXED_NOW_MS - 6 * 60_000,
+      notifyDeps: { vibrate, getRegistration, notification },
+    });
+
+    platform.clock.advance(60_000);
+    expect(vibrate).toHaveBeenCalledWith([...DUE_VIBRATION]);
+    expect(notes).toHaveLength(0);
+
+    session.actions.setSettings({ sound: true });
+    session.actions.undo(recovery.id);
+    session.actions.setTheatreReturn(recovery.id, isoPlus(FIXED_NOW_ISO, -30));
+    platform.clock.advance(60_000);
+    expect(notes).toHaveLength(2);
+    await flushMicrotasks();
+    expect(getRegistration).not.toHaveBeenCalled();
+
+    session.actions.setSettings({ notifications: true });
+    session.actions.undo(recovery.id);
+    session.actions.setTheatreReturn(recovery.id, isoPlus(FIXED_NOW_ISO, -40));
+    platform.clock.advance(60_000);
+    await flushMicrotasks();
+    expect(showNotification).toHaveBeenCalledTimes(1);
+    expect(notes).toHaveLength(4);
+  });
+
+  it('holds and releases the screen wake lock from the setting, and drops it on stop', async () => {
+    const release = vi.fn(() => Promise.resolve());
+    const sentinel = { release, addEventListener: vi.fn() };
+    const request = vi.fn(() => Promise.resolve(sentinel));
+    vi.stubGlobal('navigator', { wakeLock: { request } });
+    const { session } = await booted();
+    expect(request).not.toHaveBeenCalled();
+
+    session.actions.setSettings({ keepScreenOn: true });
+    await flushMicrotasks();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith('screen');
+
+    session.actions.setSettings({ sound: true });
+    await flushMicrotasks();
+    expect(request).toHaveBeenCalledTimes(1);
+
+    session.actions.setSettings({ keepScreenOn: false });
+    expect(release).toHaveBeenCalledTimes(1);
+
+    session.actions.setSettings({ keepScreenOn: true });
+    await flushMicrotasks();
+    expect(request).toHaveBeenCalledTimes(2);
+    session.stop();
+    expect(release).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops the scheduler and the effects on stop', async () => {
+    const repo = fakeRepo();
+    repo.loadResult = { ...emptyLoad(), patients: [patientRecovery()] };
+    const { platform, session } = await booted({ repo });
+    expect(platform.clock.pending()).toBe(1);
+    session.stop();
+    expect(platform.clock.pending()).toBe(0);
+    session.actions.setSettings({ theme: 'dark' });
+    expect(document.documentElement.dataset.theme).toBeUndefined();
+  });
+
+  it('reports a wake lock the platform refuses through the transient banner', async () => {
+    const request = vi.fn(() => Promise.reject(new Error('battery saver')));
+    vi.stubGlobal('navigator', { wakeLock: { request } });
+    const { session } = await booted();
+    session.actions.setSettings({ keepScreenOn: true });
+    await flushMicrotasks();
+    expect(session.banners.transient.value).toBe('Could not keep the screen on: battery saver');
+  });
+});
+
+describe('intake and discharge booking', () => {
+  it('sets an intake time, ignores an invalid one and toasts a booking', async () => {
+    const { session } = await booted();
+    const id = session.actions.addPatient(FORM_DOG);
+    expect(session.state.value.patients[id]?.intake).toBe('08:00');
+    session.actions.setIntake(id, '10:30');
+    expect(session.state.value.patients[id]?.intake).toBe('10:30');
+    session.actions.setIntake(id, '24:00');
+    expect(session.state.value.patients[id]?.intake).toBe('10:30');
+    session.actions.setIntake(id, 'none');
+    expect(session.state.value.patients[id]?.intake).toBe('none');
+
+    const booked = isoPlus(FIXED_NOW_ISO, 120);
+    session.actions.bookDischarge(id, booked);
+    expect(session.state.value.patients[id]?.dischargeBookedAt).toBe(booked);
+    expect(session.toast.value?.message).toBe(`Discharge booked for ${formatClock(booked)}`);
+    expect(session.toast.value?.undoPatientId).toBeUndefined();
+    const shown = session.toast.value;
+
+    session.actions.bookDischarge(id, booked);
+    expect(session.toast.value).toBe(shown);
+    session.actions.bookDischarge(id, undefined);
+    expect(session.state.value.patients[id]?.dischargeBookedAt).toBeUndefined();
+    expect(session.toast.value).toBe(shown);
+    session.actions.bookDischarge('missing', booked);
+    expect(session.toast.value).toBe(shown);
+    await session.flush();
+    expect(session.state.value.events.filter((e) => e.type === 'DISCHARGE_BOOKED')).toHaveLength(2);
   });
 });
