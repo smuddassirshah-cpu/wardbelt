@@ -746,3 +746,25 @@ Branch `change/b-scheduler`. Scope: CHANGES-2026-09.md section 4 only. Files tou
   minutes while a check is overdue") is accurate at this granularity.
 - `REPEAT_MS` is exported from `@scheduler/timers` if WP C wants the Settings hint to derive the
   "5 minutes" rather than hard-code it.
+
+**Fix round (verifier FAIL, 2026-09-17)**
+
+The verifier returned one failure and two notes, all in `src/scheduler/wakelock.ts`; all three are
+fixed with a regression test each, and no exported name or signature changed. F1: `release()`
+throwing synchronously escaped through `disable()`, so the module could throw after all. `drop`
+now guards the call the same way `acquire` guards `request()`, routing a synchronous throw to the
+same `Could not release the screen wake lock` message as a rejection. N1: a request that rejected
+after `disable` still reported, which would raise a banner just as the nurse switched "Keep screen
+on" off. Acquisition failures now go through one `acquireFailed` helper that clears `pending` and
+reports only while the lock is still wanted; a later `enable` retries as before. N2: a throwing
+`sentinel.addEventListener` left `held()` true while reporting an acquisition failure. The
+sentinel is now adopted only after its release listener is attached, and on that failure it is
+released and the failure reported, so `held()` is false and the message agrees. Tests added:
+"never lets a synchronously throwing release escape disable", "does not report a request that
+rejects after disable" (including that a later enable still succeeds), and "releases the sentinel
+and reports when its release listener cannot be attached". Gate re-run green in the worktree:
+lint and prettier clean; typecheck clean; `Test Files 43 passed (43)`, `Tests 517 passed (517)`
+(`tests/unit/scheduler` 92, wakelock 22); repo coverage statements 99.22% (1913/1928), branches
+97.21% (1258/1294), functions 98.47% (515/523), lines 99.35% (1862/1874), with all four
+`src/scheduler` modules still at 100% on every metric; build byte-identical to the first round
+(`index-DqKuzSBK.js` 93.99 kB gzip 32.54 kB, `sw.mjs` 17.07 kB, precache 13 entries 126.04 KiB).

@@ -244,6 +244,75 @@ describe('createWakeLock: failure', () => {
     expect(lock.held()).toBe(false);
   });
 
+  it('never lets a synchronously throwing release escape disable', async () => {
+    const errors: string[] = [];
+    const sentinel: WakeLockSentinel = {
+      release: () => {
+        throw new Error('release exploded');
+      },
+      addEventListener: () => undefined,
+    };
+    const lock = createWakeLock({
+      request: () => Promise.resolve(sentinel),
+      isVisible: () => true,
+      onError: (r) => errors.push(r),
+    });
+    lock.enable();
+    await settle();
+    expect(lock.held()).toBe(true);
+    expect(() => {
+      lock.disable();
+    }).not.toThrow();
+    expect(errors).toEqual(['Could not release the screen wake lock: release exploded']);
+    expect(lock.held()).toBe(false);
+  });
+
+  it('does not report a request that rejects after disable', async () => {
+    const h = harness();
+    let reject: (err: unknown) => void = () => undefined;
+    h.failWith(
+      () =>
+        new Promise<WakeLockSentinel>((_resolve, r) => {
+          reject = r;
+        }),
+    );
+    h.lock.enable();
+    h.lock.disable();
+    reject(new Error('permission denied'));
+    await settle();
+    expect(h.errors).toEqual([]);
+    expect(h.lock.held()).toBe(false);
+    h.failWith(undefined);
+    h.lock.enable();
+    await settle();
+    expect(h.lock.held()).toBe(true);
+    expect(h.errors).toEqual([]);
+  });
+
+  it('releases the sentinel and reports when its release listener cannot be attached', async () => {
+    const errors: string[] = [];
+    let releases = 0;
+    const sentinel: WakeLockSentinel = {
+      release: () => {
+        releases += 1;
+        return Promise.resolve();
+      },
+      addEventListener: () => {
+        throw new Error('listener rejected');
+      },
+    };
+    const lock = createWakeLock({
+      request: () => Promise.resolve(sentinel),
+      isVisible: () => true,
+      onError: (r) => errors.push(r),
+    });
+    lock.enable();
+    await settle();
+    expect(lock.held()).toBe(false);
+    expect(releases).toBe(1);
+    expect(errors).toEqual(['Could not keep the screen on: listener rejected']);
+  });
+
   it('stays quiet without an onError handler', async () => {
     const lock = createWakeLock({
       request: () => Promise.reject(new Error('denied')),

@@ -6,8 +6,12 @@
 // platform drops the sentinel whenever the page hides, so `enable` subscribes to visibility and
 // re-acquires on every return rather than assuming one acquisition lasts. A rejected request
 // (permission, low battery, unsupported) is reported once per attempt and leaves the lock wanted,
-// so the next visibility change retries. `disable` during an in-flight request releases the
-// sentinel on arrival. No patient data reaches this module and nothing is logged.
+// so the next visibility change retries; a rejection that arrives after `disable` is not reported,
+// because the user has already said they no longer want the lock. `disable` during an in-flight
+// request releases the sentinel on arrival. Every platform call is guarded both ways, since
+// `release` and `addEventListener` may throw synchronously and neither `enable` nor `disable` may
+// ever throw; the sentinel is adopted only once its release listener is attached, so `held` and
+// the reported message always agree. No patient data reaches this module and nothing is logged.
 
 export interface WakeLockSentinel {
   release(): Promise<void>;
@@ -41,10 +45,24 @@ export function createWakeLock(deps: WakeLockDeps = {}): WakeLock {
   let pending = false;
   let unsubscribe: (() => void) | undefined;
 
+  const releaseFailed = (err: unknown): void => {
+    onError(`Could not release the screen wake lock${describe(err)}`);
+  };
+
   const drop = (held: WakeLockSentinel): void => {
-    held.release().catch((err: unknown) => {
-      onError(`Could not release the screen wake lock${describe(err)}`);
-    });
+    try {
+      held.release().catch(releaseFailed);
+    } catch (err: unknown) {
+      releaseFailed(err);
+    }
+  };
+
+  /** Reports an acquisition failure, unless the lock has since stopped being wanted. */
+  const acquireFailed = (err: unknown): void => {
+    pending = false;
+    if (wanted) {
+      onError(`Could not keep the screen on${describe(err)}`);
+    }
   };
 
   const adopt = (held: WakeLockSentinel): void => {
@@ -53,12 +71,18 @@ export function createWakeLock(deps: WakeLockDeps = {}): WakeLock {
       drop(held);
       return;
     }
+    try {
+      held.addEventListener('release', () => {
+        if (sentinel === held) {
+          sentinel = undefined;
+        }
+      });
+    } catch (err: unknown) {
+      drop(held);
+      acquireFailed(err);
+      return;
+    }
     sentinel = held;
-    held.addEventListener('release', () => {
-      if (sentinel === held) {
-        sentinel = undefined;
-      }
-    });
   };
 
   const acquire = (): void => {
@@ -71,15 +95,9 @@ export function createWakeLock(deps: WakeLockDeps = {}): WakeLock {
     }
     pending = true;
     try {
-      request()
-        .then(adopt)
-        .catch((err: unknown) => {
-          pending = false;
-          onError(`Could not keep the screen on${describe(err)}`);
-        });
+      request().then(adopt).catch(acquireFailed);
     } catch (err: unknown) {
-      pending = false;
-      onError(`Could not keep the screen on${describe(err)}`);
+      acquireFailed(err);
     }
   };
 
