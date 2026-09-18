@@ -1,6 +1,6 @@
 # Build state
 
-Current stage: 8 complete; deployed. Post field test change set merged on claude/post-field-test-changes-mh1cb7 (2026-09-18), not yet on main.
+Current stage: 8 complete; deployed. Post field test change set merged to main and deployed (2026-09-18).
 Last updated: 2026-09-18
 Mode: autonomous one-shot (see CLAUDE.md)
 
@@ -650,7 +650,9 @@ Running log. One line each: date, decision, reason, PLAN.md deviation? y/n.
 Anything blocking or deferred, with the stage it affects.
 
 ## Next action
-Human decision: merge claude/post-field-test-changes-mh1cb7 into main so CI and the Pages workflow deploy the change set. Nothing else is pending.
+none: deployed
+
+Deploy confirmation (orchestrator, 2026-09-18): merged to main as 25941d7 on the user's instruction. CI run 25 completed with conclusion success (lint, typecheck, unit, build, bundle size, hardening checks, Playwright e2e on GitHub's own Chromium). Pages run 11 completed with conclusion success at 00:08 UTC. The live URL could not be fetched from the build container (egress policy), so the served bundle was not re-checked from here; the deploy job's success is the evidence.
 
 ## Post field test change set (September 2026, orchestrator record)
 
