@@ -1,7 +1,7 @@
 # Build state
 
-Current stage: 8 complete; deployed
-Last updated: 2026-09-09
+Current stage: 8 complete; deployed. Post field test change set merged on claude/post-field-test-changes-mh1cb7 (2026-09-18), not yet on main.
+Last updated: 2026-09-18
 Mode: autonomous one-shot (see CLAUDE.md)
 
 ## Stages
@@ -650,7 +650,23 @@ Running log. One line each: date, decision, reason, PLAN.md deviation? y/n.
 Anything blocking or deferred, with the stage it affects.
 
 ## Next action
-none: deployed
+Human decision: merge claude/post-field-test-changes-mh1cb7 into main so CI and the Pages workflow deploy the change set. Nothing else is pending.
+
+## Post field test change set (September 2026, orchestrator record)
+
+Binding spec: docs/CHANGES-2026-09.md. Findings and decisions in its section 0; PLAN.md sections 3, 6, 7, 8 and 10 updated; DECISIONS.md rows F.1 to F.22.
+
+| WP | Deliverable | Branch | Verifier | Merged |
+|----|-------------|--------|----------|--------|
+| A | Domain and store: retire to_theatre, free-text intake, ward status, discharge booking, theatre return on handover, notes 1000 | change/a-domain-store | PASS 2026-09-17 (first round) | a0cad61 |
+| B | Scheduler: 5 minute repeat while overdue, notification vibrate and silent false, tone hook, wake lock | change/b-scheduler | 1 FAIL (wake lock could throw from disable) then PASS 2026-09-17 | 716a877 |
+| C | UI, e2e, README: status chip, step icons, book discharge, intake editing, due tone, keep screen on | change/c-ui | 1 FAIL (timer chip and name truncated at 393 px; stale README row) then PASS 2026-09-18 | 4d512b5 |
+
+Order: A and B implemented concurrently; B merged first (kept the gate green), A second (expected UI compile breakage until C), C last. Spec amendments by the orchestrator after C's first verification: the timer chip shows the step icon plus countdown rather than the full label (the label truncated itself and the name), and the status chip sits on the second header line under the name.
+
+Full gate on the merged branch at 5106b8d (2026-09-18): `npm run lint` eslint 0 problems and prettier clean; `npm run typecheck` both projects clean; `npm test` 45 files, 575 tests passed, coverage statements 99.23%, branches 97.35%, functions 98.4%, lines 99.36%, src/domain 100% thresholds met; `npm run build` index js 103.96 kB (gzip 35.82), css 15.25 kB, sw.mjs 17.07 kB, precache 13 entries 136.72 KiB; `npm run test:e2e` 40 passed (Pixel 5 profile, axe clean in both themes). e2e in this environment ran through a browser path shim because the container ships Chromium build 1194 and Playwright 1.63 looks for 1243; nothing in the repository depends on the shim, and CI installs its own browser.
+
+Known limitations carried into the field: with the screen off, Android freezes the page's timers, so alerts still arrive late unless "Keep screen on" is enabled or the phone is woken; there is no server for push. Alert repeats land within 60 s of each 5 minute mark.
 
 Deploy confirmation (orchestrator, 2026-09-09): CI run and Pages run for main commit 5b76ee9 both completed with conclusion success. Live checks against https://smuddassirshah-cpu.github.io/wardbelt/ : index 200 with the CSP meta; manifest.webmanifest 200 (name Wardbelt, start_url and scope /wardbelt/, display standalone, icons 192, 512 and maskable 512, each served 200 image/png); sw.js 200 (17 precache entries including index.html); all asset references under /wardbelt/assets/. Playwright Pixel 5 against the live URL: navigator.serviceWorker.ready resolves with scope /wardbelt/, the controller is /wardbelt/sw.js after reload, an offline reload still renders the board, the empty state and the 48 px Add patient button render after hydration, zero console errors.
 
