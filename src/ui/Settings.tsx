@@ -5,7 +5,8 @@
 // caller validates it (PLAN.md section 7) and hands back `importError` to show inline, next
 // to the file it concerns. `exportText` is the last resort of the export chain (section 8): a
 // read-only textarea that selects itself on focus so the JSON can be copied by hand. Delete
-// everything is an inline two-step confirm.
+// everything is an inline two-step confirm. Sound now covers the completion click and the tone
+// a due check plays, and Keep screen on is the opt-in wake lock from CHANGES-2026-09.md section 3.
 import { type Settings as SettingsRecord, type Theme } from '@domain/types';
 import { useId, useRef, useState } from 'preact/hooks';
 import { ConfirmButton } from './ConfirmButton';
@@ -38,12 +39,21 @@ const THEMES: readonly Theme[] = ['system', 'light', 'dark'];
 const PURGE_MIN = 1;
 const PURGE_MAX = 365;
 
+/** Every notification hint ends with the repeat cadence, which holds in all four states. */
+export const NOTIFICATION_REPEAT = 'Alerts repeat every 5 minutes while a check is overdue.';
+
 export const NOTIFICATION_HINT: Readonly<Record<NotificationState, string>> = {
-  granted: 'Allowed. Overdue checks show a notification while the app is open.',
-  denied: 'Blocked in browser settings. Vibration still works.',
-  default: 'The browser will ask for permission when you turn this on.',
-  unsupported: 'Not supported on this browser. Vibration still works.',
+  granted: `Allowed. Overdue checks show a notification while the app is open. ${NOTIFICATION_REPEAT}`,
+  denied: `Blocked in browser settings. Vibration still works. ${NOTIFICATION_REPEAT}`,
+  default: `The browser will ask for permission when you turn this on. ${NOTIFICATION_REPEAT}`,
+  unsupported: `Not supported on this browser. Vibration still works. ${NOTIFICATION_REPEAT}`,
 };
+
+export const SOUND_HINT =
+  'A click on completion and a tone when a check falls due, while the app is open.';
+
+export const KEEP_SCREEN_ON_HINT =
+  "Android pauses the app's timers when the screen is off, so alerts arrive late. This keeps the screen on while Wardbelt is open. Uses more battery.";
 
 export const STORAGE_LINE: Readonly<Record<StorageMode, string>> = {
   idb: 'Saving to this phone',
@@ -187,11 +197,20 @@ export function Settings(props: SettingsProps) {
         />
         <Toggle
           id={`${id}-sound`}
-          label="Click on completion"
-          hint="A short click each time a task is completed."
+          label="Sound"
+          hint={SOUND_HINT}
           checked={settings.sound}
           onToggle={(checked) => {
             onChange({ sound: checked });
+          }}
+        />
+        <Toggle
+          id={`${id}-screen`}
+          label="Keep screen on"
+          hint={KEEP_SCREEN_ON_HINT}
+          checked={settings.keepScreenOn}
+          onToggle={(checked) => {
+            onChange({ keepScreenOn: checked });
           }}
         />
         <Toggle

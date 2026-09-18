@@ -3,21 +3,26 @@
 // `unknown` and outputs are typed records with unknown fields dropped. Field readers record an
 // error and return a fallback; a result is only built when nothing failed. Weight is normalised
 // to two decimal places rather than rejected. ISO timestamps are normalised to UTC `Z` form so
-// stored values compare lexicographically.
+// stored values compare lexicographically. Tasks carrying a retired step key are dropped from a
+// stored or imported record rather than rejecting it, and the survivors are renumbered 0..n-1
+// in their original order; events keep retired keys so the history stays readable.
 import { TEMPLATE_BY_KEY } from './template';
 import {
   DEFAULT_SETTINGS,
-  INTAKES,
+  INTAKE_NONE,
   PHASES,
+  RETIRED_STEP_KEYS,
   SEXES,
   SPECIES,
   TRANSFER_SCHEMA_VERSION,
   type Event,
   type EventType,
+  type Intake,
   type Iso,
   type Patient,
   type PatientForm,
   type PatientStatus,
+  type RetiredStepKey,
   type Settings,
   type Task,
   type TaskKey,
@@ -32,6 +37,7 @@ export type Result<T> = { ok: true; value: T } | { ok: false; errors: FieldError
 export const IMPORT_SIZE_CAP_BYTES = 10 * 1024 * 1024;
 export const CUSTOM_DUE_PAST_MS = 24 * 3_600_000;
 export const CUSTOM_DUE_AHEAD_MS = 48 * 3_600_000;
+export const NOTES_MAX = 1000;
 const MAX_TASKS_PER_PATIENT = 200;
 const ID_MAX = 120;
 
@@ -43,12 +49,16 @@ const EVENT_TYPES = [
   'UNDO',
   'THEATRE_RETURN',
   'DISCHARGED',
+  'DISCHARGE_BOOKED',
   'PATIENT_DELETED',
 ] as const satisfies readonly EventType[];
 const TASK_STATUSES = ['todo', 'done', 'skipped'] as const satisfies readonly TaskStatus[];
 const PATIENT_STATUSES = ['active', 'discharged'] as const satisfies readonly PatientStatus[];
 const THEMES = ['light', 'dark', 'system'] as const satisfies readonly Theme[];
 const PHONE_RE = /^[0-9+ ]+$/;
+const INTAKE_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const INTAKE_MESSAGE = 'Enter a time as HH:MM, or none';
+const RETIRED_KEYS: ReadonlySet<string> = new Set<string>(RETIRED_STEP_KEYS);
 
 type Obj = Record<string, unknown>;
 
@@ -70,7 +80,16 @@ export function parseIso(u: unknown): Iso | undefined {
 }
 
 function isTaskKey(u: unknown): u is TaskKey {
-  return u === 'custom' || (typeof u === 'string' && u in TEMPLATE_BY_KEY);
+  return u === 'custom' || (typeof u === 'string' && Object.hasOwn(TEMPLATE_BY_KEY, u));
+}
+
+function isRetiredStepKey(u: unknown): u is RetiredStepKey {
+  return typeof u === 'string' && RETIRED_KEYS.has(u);
+}
+
+/** `'none'` or a 24-hour local time HH:MM (CHANGES-2026-09.md section 3). */
+export function isIntake(u: unknown): u is Intake {
+  return typeof u === 'string' && (u === INTAKE_NONE || INTAKE_RE.test(u));
 }
 
 /** Collects field errors; readers return a fallback after recording one. */
@@ -208,6 +227,25 @@ class Fields {
     return s;
   }
 
+  intake(): Intake {
+    const raw = this.o.intake;
+    if (isIntake(raw)) {
+      return raw;
+    }
+    this.fail('intake', INTAKE_MESSAGE);
+    return INTAKE_NONE;
+  }
+
+  /** Retired keys are accepted on events so past history stays readable. */
+  eventTaskKey(field: string): TaskKey | RetiredStepKey {
+    const raw = this.o[field];
+    if (isTaskKey(raw) || isRetiredStepKey(raw)) {
+      return raw;
+    }
+    this.fail(field, 'Unknown task key');
+    return 'custom';
+  }
+
   taskKey(field: string): TaskKey {
     const raw = this.o[field];
     if (isTaskKey(raw)) {
@@ -226,8 +264,8 @@ function readForm(f: Fields): PatientForm {
     sex: f.choice('sex', SEXES, 'Choose a sex'),
     procedure: f.str('procedure', 1, 80),
     kennel: f.str('kennel', 0, 10),
-    intake: f.choice('intake', INTAKES, 'Choose an intake slot'),
-    notes: f.str('notes', 0, 500),
+    intake: f.intake(),
+    notes: f.str('notes', 0, NOTES_MAX),
   };
   const weightKg = f.weightKg();
   if (weightKg !== undefined) {
@@ -304,7 +342,7 @@ function readTask(input: unknown): Result<Task> {
   if (doneAt !== undefined) {
     t.doneAt = doneAt;
   }
-  const note = f.optStr('note', 500);
+  const note = f.optStr('note', NOTES_MAX);
   if (note !== undefined && note !== '') {
     t.note = note;
   }
@@ -319,6 +357,9 @@ function readTasks(f: Fields, raw: unknown): Task[] {
   const ids = new Set<string>();
   const tasks: Task[] = [];
   (raw as unknown[]).forEach((item, i) => {
+    if (isObj(item) && isRetiredStepKey(item.key)) {
+      return;
+    }
     const r = readTask(item);
     if (!r.ok) {
       f.fail(`tasks.${i}`, Object.values(r.errors).join('; '));
@@ -326,7 +367,7 @@ function readTasks(f: Fields, raw: unknown): Task[] {
       f.fail(`tasks.${i}`, 'Duplicate task id');
     } else {
       ids.add(r.value.id);
-      tasks.push(r.value);
+      tasks.push({ ...r.value, order: tasks.length });
     }
   });
   return tasks;
@@ -348,6 +389,10 @@ export function validatePatientRecord(input: unknown): Result<Patient> {
   const theatreReturnAt = f.optIso('theatreReturnAt');
   if (theatreReturnAt !== undefined) {
     p.theatreReturnAt = theatreReturnAt;
+  }
+  const dischargeBookedAt = f.optIso('dischargeBookedAt');
+  if (dischargeBookedAt !== undefined) {
+    p.dischargeBookedAt = dischargeBookedAt;
   }
   const dischargedAt = f.optIso('dischargedAt');
   if (dischargedAt !== undefined) {
@@ -372,7 +417,7 @@ export function validateEvent(input: unknown): Result<Event> {
     e.taskId = taskId;
   }
   if (input.taskKey !== undefined) {
-    e.taskKey = f.taskKey('taskKey');
+    e.taskKey = f.eventTaskKey('taskKey');
   }
   const custom = f.optBool('custom');
   if (custom !== undefined) {
@@ -401,6 +446,7 @@ export function validateSettings(input: unknown): Result<Settings> {
     theme: f.choice('theme', THEMES, 'Unknown theme'),
     purgeDays: f.int('purgeDays', 1, 365, 'Between 1 and 365 days'),
     showOwnerPhone: f.bool('showOwnerPhone'),
+    keepScreenOn: f.optBool('keepScreenOn') ?? false,
   };
   const lastExportAt = f.optIso('lastExportAt');
   if (lastExportAt !== undefined) {

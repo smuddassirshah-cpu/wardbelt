@@ -1,7 +1,9 @@
 // Decision notes: platform feedback for task completion (PLAN.md section 10). Vibration and
 // WebAudio are feature-detected and never throw; failures reach the optional onError callback.
-// The AudioContext is created lazily on the first click so no audio resources exist until the
-// nurse enables sound. `reducedMotion` does not silence haptics or sound (neither is on-screen
+// The AudioContext is created lazily on the first sound so no audio resources exist until the
+// nurse enables sound; the completion click and the due tone share it, and both route a
+// suspended context through the same resume. The due tone is two short notes scheduled on the
+// context's own clock rather than with timers, so nothing is left pending if the page is hidden. `reducedMotion` does not silence haptics or sound (neither is on-screen
 // motion); it is returned as `animate: false` so callers skip animation classes, which the
 // stylesheet also disables under the media query.
 export interface FeedbackOptions {
@@ -18,6 +20,9 @@ export interface FeedbackResult {
 const CLICK_SECONDS = 0.04;
 const CLICK_HZ = 880;
 const CLICK_GAIN = 0.08;
+const TONE_SECONDS = 0.15;
+const TONE_GAP_SECONDS = 0.08;
+const TONE_HZ = [880, 660];
 
 let audio: AudioContext | undefined;
 
@@ -52,18 +57,30 @@ function vibrate(pattern: number | number[], onError: FeedbackOptions['onError']
   }
 }
 
-function playClick(ctx: AudioContext): void {
+function note(ctx: AudioContext, hz: number, startAt: number, seconds: number): void {
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
-  osc.frequency.value = CLICK_HZ;
+  osc.frequency.value = hz;
   gain.gain.value = CLICK_GAIN;
   osc.connect(gain);
   gain.connect(ctx.destination);
-  osc.start();
-  osc.stop(ctx.currentTime + CLICK_SECONDS);
+  osc.start(startAt);
+  osc.stop(startAt + seconds);
 }
 
-function click(onError: FeedbackOptions['onError']): void {
+function playClick(ctx: AudioContext): void {
+  note(ctx, CLICK_HZ, ctx.currentTime, CLICK_SECONDS);
+}
+
+function playDueTone(ctx: AudioContext): void {
+  const step = TONE_SECONDS + TONE_GAP_SECONDS;
+  TONE_HZ.forEach((hz, i) => {
+    note(ctx, hz, ctx.currentTime + i * step, TONE_SECONDS);
+  });
+}
+
+/** Runs `play` on the lazy context, resuming it first; every failure reaches `onError`. */
+function withAudio(onError: FeedbackOptions['onError'], play: (ctx: AudioContext) => void): void {
   const g: AudioGlobal = globalThis;
   const Ctor = g.AudioContext;
   if (typeof Ctor !== 'function') {
@@ -76,17 +93,34 @@ function click(onError: FeedbackOptions['onError']): void {
       ctx
         .resume()
         .then(() => {
-          playClick(ctx);
+          play(ctx);
         })
         .catch((error: unknown) => {
           onError?.(error);
         });
     } else {
-      playClick(ctx);
+      play(ctx);
     }
   } catch (error: unknown) {
     onError?.(error);
   }
+}
+
+function click(onError: FeedbackOptions['onError']): void {
+  withAudio(onError, playClick);
+}
+
+export interface ToneOptions {
+  sound: boolean;
+  onError?: (error: unknown) => void;
+}
+
+/** Two short notes when a check falls due, while the app is open. Silent when Sound is off. */
+export function dueTone(opts: ToneOptions): void {
+  if (!opts.sound) {
+    return;
+  }
+  withAudio(opts.onError, playDueTone);
 }
 
 function feedback(pattern: number | number[], opts: FeedbackOptions): FeedbackResult {

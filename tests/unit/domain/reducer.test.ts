@@ -89,7 +89,7 @@ describe('ADD_PATIENT', () => {
       status: 'active',
       createdAt: T0,
     });
-    expect(patient(s, 'd').tasks).toHaveLength(19);
+    expect(patient(s, 'd').tasks).toHaveLength(18);
     expect(s.events).toEqual([{ id: 'add-d', at: T0, type: 'PATIENT_ADDED', patientId: 'd' }]);
   });
 
@@ -159,12 +159,17 @@ describe('COMPLETE_TASK and SKIP_TASK', () => {
     expect(s.events.at(-1)).toEqual({ id: 'dc:1', at: T1, type: 'DISCHARGED', patientId: 'd' });
   });
 
-  it('completing in_theatre schedules the checks through the patient rules', () => {
-    const s = run(withDog(), [
+  it('completing handover_theatre schedules the checks through the patient rules', () => {
+    const inTheatre = run(withDog(), [
       { type: 'COMPLETE_TASK', patientId: 'd', taskId: 'd:in_theatre', ...stamp(T1, 'it') },
     ]);
-    expect(patient(s, 'd').theatreReturnAt).toBe(T1);
-    expect(task(s, 'd', 'check_3').dueAt).toBe(isoPlus(T1, 45));
+    expect(patient(inTheatre, 'd').theatreReturnAt).toBeUndefined();
+    expect(task(inTheatre, 'd', 'check_3').dueAt).toBeUndefined();
+    const s = run(inTheatre, [
+      { type: 'COMPLETE_TASK', patientId: 'd', taskId: 'd:handover_theatre', ...stamp(T2, 'ht') },
+    ]);
+    expect(patient(s, 'd').theatreReturnAt).toBe(T2);
+    expect(task(s, 'd', 'check_3').dueAt).toBe(isoPlus(T2, 45));
   });
 });
 
@@ -349,6 +354,86 @@ describe('DISCHARGE', () => {
     expect(s.events.at(-1)).toEqual({ id: 'dc', at: T1, type: 'DISCHARGED', patientId: 'd' });
     expect(reduce(s, { type: 'DISCHARGE', patientId: 'd', ...stamp(T2, 'dc2') })).toBe(s);
     expect(reduce(s, { type: 'DISCHARGE', patientId: 'zz', ...stamp(T2, 'dc3') })).toBe(s);
+  });
+});
+
+describe('BOOK_DISCHARGE', () => {
+  it('records the collection time and logs DISCHARGE_BOOKED with it as dueAt', () => {
+    const s = run(withDog(), [
+      { type: 'BOOK_DISCHARGE', patientId: 'd', bookedAt: T3, ...stamp(T1, 'bk') },
+    ]);
+    expect(patient(s, 'd').dischargeBookedAt).toBe(T3);
+    expect(patient(s, 'd').status).toBe('active');
+    expect(s.events.at(-1)).toEqual({
+      id: 'bk',
+      at: T1,
+      type: 'DISCHARGE_BOOKED',
+      patientId: 'd',
+      dueAt: T3,
+    });
+  });
+
+  it('clears the booking with no time and logs the event without a dueAt', () => {
+    const booked = run(withDog(), [
+      { type: 'BOOK_DISCHARGE', patientId: 'd', bookedAt: T3, ...stamp(T1, 'bk') },
+    ]);
+    const s = run(booked, [{ type: 'BOOK_DISCHARGE', patientId: 'd', ...stamp(T2, 'bk2') }]);
+    expect('dischargeBookedAt' in patient(s, 'd')).toBe(false);
+    expect(s.events.at(-1)).toEqual({
+      id: 'bk2',
+      at: T2,
+      type: 'DISCHARGE_BOOKED',
+      patientId: 'd',
+    });
+    expect(reduce(s, { type: 'BOOK_DISCHARGE', patientId: 'd', ...stamp(T2, 'bk3') })).toBe(s);
+  });
+
+  it('is a no-op for unknown, unchanged, discharged and unparseable bookings', () => {
+    const s = run(withDog(), [
+      { type: 'BOOK_DISCHARGE', patientId: 'd', bookedAt: T3, ...stamp(T1, 'bk') },
+    ]);
+    expect(reduce(s, { type: 'BOOK_DISCHARGE', patientId: 'zz', ...stamp(T2, 'x') })).toBe(s);
+    expect(
+      reduce(s, { type: 'BOOK_DISCHARGE', patientId: 'd', bookedAt: T3, ...stamp(T2, 'x') }),
+    ).toBe(s);
+    expect(
+      reduce(s, { type: 'BOOK_DISCHARGE', patientId: 'd', bookedAt: 'soon', ...stamp(T2, 'x') }),
+    ).toBe(s);
+    const gone = run(s, [{ type: 'DISCHARGE', patientId: 'd', ...stamp(T2, 'dc') }]);
+    expect(patient(gone, 'd').dischargeBookedAt).toBe(T3);
+    expect(
+      reduce(gone, { type: 'BOOK_DISCHARGE', patientId: 'd', bookedAt: T1, ...stamp(T3, 'x') }),
+    ).toBe(gone);
+  });
+
+  it('is not reverted by UNDO, which only touches completions and skips', () => {
+    const s = run(withDog(), [
+      { type: 'COMPLETE_TASK', patientId: 'd', taskId: 'd:bloods', ...stamp(T1, 'c1') },
+      { type: 'BOOK_DISCHARGE', patientId: 'd', bookedAt: T3, ...stamp(T2, 'bk') },
+      { type: 'UNDO', patientId: 'd', ...stamp(T3, 'u1') },
+    ]);
+    expect(patient(s, 'd').dischargeBookedAt).toBe(T3);
+    expect(task(s, 'd', 'bloods').status).toBe('todo');
+  });
+});
+
+describe('SET_INTAKE', () => {
+  it('replaces the intake without an event', () => {
+    const before = withDog();
+    const s = reduce(before, { type: 'SET_INTAKE', patientId: 'd', intake: '13:45' });
+    expect(patient(s, 'd').intake).toBe('13:45');
+    expect(s.events).toBe(before.events);
+    const none = reduce(s, { type: 'SET_INTAKE', patientId: 'd', intake: 'none' });
+    expect(patient(none, 'd').intake).toBe('none');
+  });
+
+  it('is a no-op for unknown patients, unchanged values and invalid times', () => {
+    const s = reduce(withDog(), { type: 'SET_INTAKE', patientId: 'd', intake: '13:45' });
+    expect(reduce(s, { type: 'SET_INTAKE', patientId: 'zz', intake: '09:00' })).toBe(s);
+    expect(reduce(s, { type: 'SET_INTAKE', patientId: 'd', intake: '13:45' })).toBe(s);
+    for (const bad of ['24:00', '9:00', '12:60', '', 'noon', '08:00:00']) {
+      expect(reduce(s, { type: 'SET_INTAKE', patientId: 'd', intake: bad })).toBe(s);
+    }
   });
 });
 

@@ -10,10 +10,10 @@ describe('scaffold', () => {
     expect(screen.getByRole('heading', { name: 'Wardbelt' })).toBeTruthy();
   });
 
-  it('template has nineteen steps with unique two-letter codes', () => {
-    expect(TEMPLATE).toHaveLength(19);
+  it('template has eighteen steps with unique two-letter codes', () => {
+    expect(TEMPLATE).toHaveLength(18);
     const codes = new Set(TEMPLATE.map((s) => s.code));
-    expect(codes.size).toBe(19);
+    expect(codes.size).toBe(18);
     for (const s of TEMPLATE) {
       expect(s.code).toMatch(/^[A-Z0-9]{2}$/);
       expect(TEMPLATE_BY_KEY[s.key]).toBe(s);
@@ -29,7 +29,7 @@ describe('scaffold', () => {
 
   it('fixtures are well formed', () => {
     for (const p of allFixturePatients()) {
-      expect(p.tasks.length).toBeGreaterThanOrEqual(19);
+      expect(p.tasks.length).toBeGreaterThanOrEqual(18);
       p.tasks.forEach((t, i) => {
         expect(t.order).toBe(i);
       });

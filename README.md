@@ -11,7 +11,7 @@ behavioural claim below is traced to a document under `docs/` in the
 [Claims and evidence](#claims-and-evidence) table at the end.
 
 <p>
-  <img src="docs/screenshots/board-light.png" width="260" alt="The board in the light theme: a dog back from theatre with a red 'C2 overdue 01:01' chip and its second post-op check outlined in red, a cat in pre-op with one green done cell, one hatched skipped cell and a 10:00 intake chip, a fresh rabbit, and a discharged patient shown below the 'Hide discharged' toggle" />
+  <img src="docs/screenshots/board-light.png" width="260" alt="The board in the light theme: a dog back from theatre with a Recovery status chip, a red 'overdue 01:00' chip for post-op check 2 and that check's cell outlined in red, a cat in pre-op with one green done cell, one hatched skipped cell, a 10:00 intake chip and a 'Home 16:00' collection chip, a fresh rabbit, and a discharged patient shown below the 'Hide discharged' toggle" />
   <img src="docs/screenshots/board-dark.png" width="260" alt="The same board in the dark theatre-mode theme on a near-black background with lightened green and red" />
 </p>
 
@@ -19,15 +19,18 @@ behavioural claim below is traced to a document under `docs/` in the
 
 ### What it is
 
-- One row per animal. The row's belt has 19 cells, one per step of the day: pre-op (handover
-  and admit, bloods, draw up meds, premed, to theatre), theatre, recovery (handover from
-  theatre, four post-op checks, food and water, take out, pain score), discharge prep (invoice,
-  call owner, pharmacy collect, remove IV) and discharge.
+- One row per animal. The row's belt has 18 cells, one per step of the day: pre-op (handover
+  and admit, bloods, draw up meds, premed), theatre, recovery (handover from theatre, four
+  post-op checks, food and water, take out, pain score), discharge prep (invoice, call owner,
+  pharmacy collect, remove IV) and discharge.
 - The outlined cell is the current step. Tap it to mark it done. Anything can be skipped or
   done out of order from the animal's sheet, because the ward does not run in order.
-- When "In theatre" is marked done, the four post-op checks are set for 15, 30, 45 and 60
-  minutes later. When one falls due the phone vibrates and the row moves to the top with a red
-  chip counting how overdue it is.
+- A small chip on the second line of the row says where the animal is: Waiting, In theatre or
+  Recovery.
+- When "Handover from theatre" is marked done, the four post-op checks are set for 15, 30, 45
+  and 60 minutes later. When one falls due the phone vibrates and the row moves to the top with
+  a red chip showing the check's icon and counting how overdue it is. While a check stays
+  overdue the alert repeats every five minutes.
 - Everything stays on the phone. There is no login, no internet needed after the first open,
   and nothing is sent anywhere.
 - It is a task list, not clinical advice: no dosing, no pain-score interpretation, no alerts
@@ -53,47 +56,56 @@ The app is published by this repository's Pages workflow at
 ### Add a patient and work the belt
 
 <p>
-  <img src="docs/screenshots/add-patient.png" width="260" alt="The Add patient sheet: Name, Species buttons (Dog, Cat, Rabbit, Other), Procedure, Intake slot buttons (08:00, 09:00, 10:00, None), Kennel, Sex buttons and Breed" />
-  <img src="docs/screenshots/patient-sheet.png" width="260" alt="A patient sheet at 10:31 scrolled to the recovery steps: In theatre done 10:00, Handover from theatre done 10:14, Post-op check 1 done 10:14, Post-op check 2 current with its cell outlined in red, Due 10:30 in red and Done and Skip buttons, checks 3 and 4 due 10:45 and 11:00, then Food and water, Take out and Pain score to do, each row with a Note button" />
+  <img src="docs/screenshots/add-patient.png" width="260" alt="The Add patient sheet: Name, Species buttons (Dog, Cat, Rabbit, Other), Procedure, an Intake time box with 08:00, 09:00, 10:00 and No set time buttons, Kennel, Sex buttons and Breed" />
+  <img src="docs/screenshots/patient-sheet.png" width="260" alt="A patient sheet at 10:45 scrolled to the recovery steps: In theatre done 10:00, Handover from theatre done 10:14, Post-op check 1 done 10:14, Post-op check 2 with its cell outlined in red, Due 10:44 in red and Done and Skip buttons, checks 3 and 4 due 10:59 and 11:14, then Food and water, Take out and Pain score to do, each row with its step icon and a Note button" />
 </p>
 
 1. Tap "Add patient" at the bottom of the board. Type the name and the procedure, tap the
-   species and the intake slot (08:00, 09:00, 10:00 or none), and tap "Add patient". Kennel,
+   species and the intake time, and tap "Add patient". The intake box takes any time of day:
+   tap 08:00, 09:00 or 10:00 for the usual ones, type another, or tap "No set time". Kennel,
    sex, breed, weight and notes are optional. That is at most eight taps plus the typing.
 2. The new row appears with the first cell outlined. Tap the outlined cell each time a step is
    done. A short buzz and a green fill confirm it; a 4-second message at the bottom offers Undo.
 3. Tap the animal's name to open its sheet. There you can mark any step Done or Skip, add a
    Note to a step, Undo the last completion or skip, add a task of your own (with an optional
-   due time) after any step, record the time back from theatre by hand, write notes for the
-   animal, Discharge, or Delete.
+   due time) after any step, record the time back from theatre by hand, change the intake time,
+   write notes for the animal, book a collection time, Discharge, or Delete.
 4. Belt cells read: outline = to do; thicker green outline = current; green fill = done;
-   grey hatching = skipped; red outline = a timed check that is overdue. The two letters are
-   the step (HA handover and admit, BL bloods, DM draw up meds, PM premed, TH to theatre, IT
-   in theatre, HT handover from theatre, C1 to C4 post-op checks, FW food and water, TO take
-   out, PS pain score, IN invoice, CO call owner, PH pharmacy collect, IV remove IV, DC
-   discharge). A task you added shows the first two letters of its label.
+   grey hatching = skipped; red outline = a timed check that is overdue. Each cell of the
+   standard day carries a small line drawing of its step: a clipboard for handover and admit, a
+   drop for bloods, a pill for draw up meds, a syringe for premed, a scalpel for in theatre, a
+   door with an arrow for handover from theatre, a stethoscope with 1 to 4 for the post-op
+   checks, a bowl for food and water, grass for take out, a face for pain score, a receipt for
+   invoice, a handset for call owner, a bag for pharmacy collect, a cannula for remove IV and a
+   house for discharge. A task you added shows the first two letters of its label instead.
 5. The board always keeps the animal that needs attention next at the top: overdue checks
-   first, then checks due within five minutes, then animals with an intake slot, then the
+   first, then checks due within five minutes, then animals with an intake time, then the
    rest in the order they were added.
-6. Discharging an animal (the DC cell, or the Discharge button on its sheet) takes it off the
+6. "Book discharge" on the sheet records the collection time agreed with the owner. The animal
+   stays on the board with a "Home 15:30" chip, which turns amber once that time has passed.
+   "Clear booking" removes it. Booking is not discharging.
+7. Discharging an animal (the last cell, or the Discharge button on its sheet) takes it off the
    board. "Show discharged" at the bottom of the board lists them again.
 
 ### What the vibration means
 
 - One short buzz: a step was marked done.
 - Two short buzzes: that animal's belt is complete.
-- Two long buzzes: a post-op check has just fallen due. The same buzz fires when the app
-  wakes and finds checks that fell due while the screen was off, one buzz for all of them.
+- Two long buzzes: a post-op check has just fallen due, and a two-note tone as well if Sound is
+  on and the app is open. The same buzz fires when the app wakes and finds checks that fell due
+  while the screen was off, one buzz for all of them, and it repeats every five minutes while a
+  check stays overdue.
 - If the phone has been asleep with the screen off for a long time, Android may hold the app
-  back, and the buzz arrives late, when the screen comes on. While the screen has been on in
-  the last few minutes the timing is reliable. Either way the board shows the overdue chip the
-  moment you look at it.
+  back, and the buzz arrives late, when the screen comes on. Turning on "Keep screen on" in
+  Settings stops that while Wardbelt is open, at the cost of battery. While the screen has been
+  on in the last few minutes the timing is reliable. Either way the board shows the overdue chip
+  the moment you look at it.
 
 ### Summary, export and settings
 
 <p>
-  <img src="docs/screenshots/summary.png" width="260" alt="The Shift summary sheet for the shift from 04:00 Tue 10 Mar: tasks completed 10, tasks skipped 1, checks on time 100%, best on-time streak 1, patients admitted 4, patients discharged 1" />
-  <img src="docs/screenshots/settings.png" width="260" alt="The Settings sheet: Notifications (blocked in this browser), Click on completion and Show owner phone field switches, Theme buttons System, Light and Dark, Keep discharged patients for 30 days, Purge, Export and Import buttons" />
+  <img src="docs/screenshots/summary.png" width="260" alt="The Shift summary sheet for the shift from 04:00 Tue 10 Mar: tasks completed 9, tasks skipped 1, checks on time 100%, best on-time streak 1, patients admitted 4, patients discharged 1" />
+  <img src="docs/screenshots/settings.png" width="260" alt="The Settings sheet: Notifications (blocked in this browser), Sound, Keep screen on and Show owner phone field switches, Theme buttons System, Light and Dark, Keep discharged patients for 30 days, Purge, Export and Import buttons" />
 </p>
 
 - "Summary" shows the shift so far: a shift runs from 04:00 to 04:00. It counts tasks
@@ -110,6 +122,9 @@ The app is published by this repository's Pages workflow at
 - Discharged animals are kept for 30 days and then removed automatically; change the number
   of days in Settings, or use "Purge discharged" to remove them now. "Delete everything"
   wipes the app's data after a second tap to confirm.
+- "Sound" adds a click when a step is completed and a two-note tone when a check falls due,
+  while the app is open. "Keep screen on" holds the screen awake while Wardbelt is open, so
+  Android does not pause its timers and the alerts arrive on time; it uses more battery.
 - "Theme" switches to a dark theatre mode; "System" follows the phone.
 - If the app is open in two Chrome tabs, the second one is read-only and says so at the top,
   so two tabs can never disagree about what has been done.
@@ -130,7 +145,8 @@ fingerprint, do not lend it unlocked, and delete or export what you no longer ne
 ```
 src/
   domain/      pure TypeScript, no I/O, no DOM, 100% covered
-    template.ts   the 19-step template, phases, step keys, two-letter codes
+    template.ts   the 18-step template, phases, step keys, two-letter codes
+    status.ts     derived ward status: waiting, theatre or recovery
     types.ts      Patient, Task, Event, Settings, State, Action union
     patient.ts    create from template, complete/skip/undo/add task, discharge
     recovery.ts   the four post-op checks at +15/30/45/60 min from theatre return
@@ -143,10 +159,12 @@ src/
     transfer.ts   JSON export and import with validation
   scheduler/   time boundary
     clock.ts      injectable clock (real and fake)
-    timers.ts     next-due computation, one setTimeout capped at 60 s, resume on visibility
-    notify.ts     permission, vibration, service-worker notification; no-op if denied
+    timers.ts     next-due computation, one setTimeout capped at 60 s, resume on visibility,
+                  repeat while a check stays overdue
+    notify.ts     permission, vibration, tone hook, service-worker notification; no-op if denied
+    wakelock.ts   opt-in screen wake lock, re-acquired on visibility; never throws
   ui/          Preact components, no business logic
-    App.tsx, Board.tsx, PatientRow.tsx, Belt.tsx, PatientSheet.tsx, AddPatientSheet.tsx,
+    App.tsx, Board.tsx, PatientRow.tsx, Belt.tsx, icons.tsx, PatientSheet.tsx, AddPatientSheet.tsx,
     ShiftSummary.tsx, Settings.tsx, feedback.ts, tokens.css (the only place colours,
     spacing and type are defined), DevGallery.tsx (#/dev renders every component state)
     app/          session wiring: store + reducer + persistence diff, scheduler, notifier,
@@ -287,11 +305,11 @@ publish. Once it has, the app is at `https://smuddassirshah-cpu.github.io/wardbe
 ### Data and privacy
 
 - What is stored: for each patient, name, species, breed, sex, weight, procedure, kennel,
-  intake slot, free-text notes, optional owner phone, the time admitted, back from theatre and
-  discharged, and each task with its status, due time, done time and note. An append-only list
-  of events (patient added, task added, completed, skipped, undone, theatre return, discharged)
-  with timestamps. Settings (notifications, sound, theme, purge days, owner-phone field, last
-  export time).
+  intake time, free-text notes, optional owner phone, the time admitted, back from theatre,
+  booked for collection and discharged, and each task with its status, due time, done time and
+  note. An append-only list of events (patient added, task added, completed, skipped, undone,
+  theatre return, discharge booked, discharged) with timestamps. Settings (notifications, sound,
+  keep screen on, theme, purge days, owner-phone field, last export time).
 - Where: IndexedDB on the handset under the app's origin, database `wardbelt`, object stores
   `patients` (keyed by id, index on status), `events` (keyed by id, index on time) and
   `settings` (keyed by name). Encryption at rest is whatever the handset's storage encryption
@@ -309,9 +327,9 @@ publish. Once it has, the app is at `https://smuddassirshah-cpu.github.io/wardbe
   field by field with the same rules as the forms, drops unknown fields, and rejects the whole
   file with a count of failing records rather than applying part of it.
 - Input validation happens once, at the boundary: the patient form (name 1 to 40 characters,
-  species and sex from fixed lists, weight 0.05 to 150 kg, procedure 1 to 80, notes up to 500,
-  phone digits, plus and spaces only), the custom task form (label 1 to 60, due time within 24 h
-  back or 48 h ahead) and the import file.
+  species and sex from fixed lists, weight 0.05 to 150 kg, procedure 1 to 80, intake 'none' or a
+  24-hour HH:MM, notes up to 1000, phone digits, plus and spaces only), the custom task form
+  (label 1 to 60, due time within 24 h back or 48 h ahead) and the import file.
 - No network: the app makes no request after the shell is cached; there are no analytics, no
   accounts, no secrets. The Content-Security-Policy meta tag in `index.html` is
   `default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'`,
@@ -326,8 +344,9 @@ publish. Once it has, the app is at `https://smuddassirshah-cpu.github.io/wardbe
 
 - Android may suspend the page when the screen is off for a long period; a due vibration can
   then arrive late, on wake. The Notification Triggers API that would fix this is not shipped
-  in Chrome. Reliable while the screen has been on in the last few minutes, best effort
-  otherwise; the board makes overdue state unmissable on wake.
+  in Chrome, so the app offers an opt-in screen wake lock ("Keep screen on") and repeats the
+  alert every five minutes while a check is overdue. Reliable while the screen has been on in
+  the last few minutes, best effort otherwise; the board makes overdue state unmissable on wake.
 - No cloud backup. A lost or reset phone loses history unless exported; export is one tap and
   the app nudges weekly.
 - One fixed template. Procedure-specific presets were rejected for this version: the stated
@@ -352,8 +371,8 @@ MIT. See `LICENSE`.
 | Claim in this README                                                                 | Source                                                                                                     |
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | Single-nurse, offline, no account, no server, no clinical decision support           | docs/PLAN.md section 1 (scope, non-goals)                                                                  |
-| 19 belt cells and their two-letter codes, phases, "current" is the first to-do; custom task codes | docs/PLAN.md section 6 (task model); docs/DECISIONS.md 0.8, 0.16, 4.10                              |
-| Post-op checks at +15/30/45/60 min from "In theatre" done                            | docs/PLAN.md section 6; tests/e2e/flows.spec.ts ("completing in theatre schedules the four checks at +15/30/45/60") |
+| 18 belt cells with a step icon each, phases, "current" is the first to-do; custom task codes | docs/PLAN.md section 6 (task model), docs/CHANGES-2026-09.md section 5; docs/DECISIONS.md 0.8, 0.16, 4.10 |
+| Post-op checks at +15/30/45/60 min from "Handover from theatre" done                 | docs/PLAN.md section 6, docs/CHANGES-2026-09.md section 3; tests/e2e/flows.spec.ts ("the four checks are scheduled by the handover, not by in theatre") |
 | Board order: overdue, due within five minutes, intake tag, created                   | docs/PLAN.md section 3 (urgency.ts); docs/DECISIONS.md 1.3                                                  |
 | Add a patient in at most eight taps                                                  | docs/PLAN.md section 11 stage 5 DoD; tests/e2e/flows.spec.ts                                               |
 | Completion feedback: 30 ms buzz, green fill, 4 s toast with Undo                     | docs/PLAN.md section 10 (completion feedback); docs/DECISIONS.md 4.26                                       |

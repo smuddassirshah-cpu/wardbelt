@@ -1,4 +1,6 @@
-// Decision notes: synthetic fixtures only (CLAUDE.md security floor). Names are placeholders
+// Decision notes: synthetic fixtures only (CLAUDE.md security floor). The belt is eighteen
+// steps since `to_theatre` was retired, and the theatre return is pinned to the
+// handover_theatre completion, which is what schedules the checks. Names are placeholders
 // that cannot match a real client or animal. Patients are built from the template here rather
 // than through domain/patient.ts so the fixtures stay usable by every stage independently.
 // All timestamps are fixed UTC values so tests are deterministic.
@@ -120,28 +122,21 @@ export function patientPreOp(): Patient {
 /** In theatre, waiting. */
 export function patientInTheatre(): Patient {
   const p = fixturePatient('p-theatre', FORM_RABBIT, isoPlus(FIXED_NOW_ISO, -90));
-  for (const k of ['handover_admit', 'bloods', 'draw_meds', 'premed', 'to_theatre'] as const) {
+  for (const k of ['handover_admit', 'bloods', 'draw_meds', 'premed'] as const) {
     setTask(p, k, 'done', isoPlus(FIXED_NOW_ISO, -60));
   }
   return p;
 }
 
-/** Back from theatre 20 minutes ago: check_1 overdue, check_2 due in 10 minutes. */
+/** Handed over from theatre 20 minutes ago: check_1 overdue, check_2 due in 10 minutes. */
 export function patientRecovery(): Patient {
   const returned = isoPlus(FIXED_NOW_ISO, -20);
   const p = fixturePatient('p-recovery', FORM_DOG, isoPlus(FIXED_NOW_ISO, -150));
-  for (const k of [
-    'handover_admit',
-    'bloods',
-    'draw_meds',
-    'premed',
-    'to_theatre',
-    'in_theatre',
-  ] as const) {
+  for (const k of ['handover_admit', 'bloods', 'draw_meds', 'premed'] as const) {
     setTask(p, k, 'done', isoPlus(FIXED_NOW_ISO, -90));
   }
-  setTask(p, 'in_theatre', 'done', returned);
-  setTask(p, 'handover_theatre', 'done', isoPlus(returned, 2));
+  setTask(p, 'in_theatre', 'done', isoPlus(returned, -2));
+  setTask(p, 'handover_theatre', 'done', returned);
   p.theatreReturnAt = returned;
   for (const [key, offset] of Object.entries(CHECK_OFFSETS_MIN) as [StepKey, number][]) {
     const t = p.tasks.find((x) => x.key === key);
@@ -210,6 +205,7 @@ export const FIXTURE_SETTINGS: Settings = {
   theme: 'light',
   purgeDays: 30,
   showOwnerPhone: true,
+  keepScreenOn: false,
 };
 
 export function fixtureEvents(): Event[] {

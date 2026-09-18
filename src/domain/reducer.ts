@@ -4,10 +4,14 @@
 // yields more than one event the extras are `${eventId}:1`, `${eventId}:2`. Completing the
 // discharge task yields TASK_COMPLETED plus a derived DISCHARGED; undoing it nullifies both
 // with two UNDO events so stats stay consistent. DELETE_PATIENT drops the patient's events and
-// appends nothing; PATIENT_DELETED stays unused in this version. The switch is exhaustive at
-// compile time and a malformed action at run time (an old persisted queue, say) is ignored.
+// appends nothing; PATIENT_DELETED stays unused in this version. BOOK_DISCHARGE and SET_INTAKE
+// return the same state when the patient is unknown or the record would not change, so a repeat
+// of either costs no persistence; SET_INTAKE reuses the validator rather than a second rule. The
+// switch is exhaustive at compile time and a malformed action at run time (an old persisted
+// queue, say) is ignored.
 import {
   addCustomTask,
+  bookDischarge,
   completeTask,
   createPatient,
   dischargePatient,
@@ -17,6 +21,7 @@ import {
 } from './patient';
 import { scheduleChecks } from './recovery';
 import { DAY_MS, toMs } from './time';
+import { isIntake } from './validate';
 import {
   DEFAULT_SETTINGS,
   type Action,
@@ -86,6 +91,9 @@ function timestampsValid(action: Action): boolean {
   }
   if (action.type === 'SET_THEATRE_RETURN') {
     return validIso(action.returnedAt);
+  }
+  if (action.type === 'BOOK_DISCHARGE') {
+    return validIso(action.bookedAt);
   }
   return action.type !== 'ADD_TASK' || validIso(action.dueAt);
 }
@@ -198,6 +206,30 @@ function discharge(state: State, action: ActionOf<'DISCHARGE'>): State {
   return withPatient(state, next, [baseEvent(action.eventId, action.at, 'DISCHARGED', p.id)]);
 }
 
+function bookDischargeOn(state: State, action: ActionOf<'BOOK_DISCHARGE'>): State {
+  const p = state.patients[action.patientId];
+  if (p === undefined) {
+    return state;
+  }
+  const next = bookDischarge(p, action.bookedAt);
+  if (next === p) {
+    return state;
+  }
+  const e = baseEvent(action.eventId, action.at, 'DISCHARGE_BOOKED', p.id);
+  if (action.bookedAt !== undefined) {
+    e.dueAt = action.bookedAt;
+  }
+  return withPatient(state, next, [e]);
+}
+
+function setIntake(state: State, action: ActionOf<'SET_INTAKE'>): State {
+  const p = state.patients[action.patientId];
+  if (p === undefined || !isIntake(action.intake) || p.intake === action.intake) {
+    return state;
+  }
+  return withPatient(state, { ...p, intake: action.intake }, []);
+}
+
 function deletePatient(state: State, action: ActionOf<'DELETE_PATIENT'>): State {
   if (state.patients[action.patientId] === undefined) {
     return state;
@@ -276,6 +308,10 @@ export function reduce(state: State, action: Action): State {
       return setTheatreReturn(state, action);
     case 'DISCHARGE':
       return discharge(state, action);
+    case 'BOOK_DISCHARGE':
+      return bookDischargeOn(state, action);
+    case 'SET_INTAKE':
+      return setIntake(state, action);
     case 'DELETE_PATIENT':
       return deletePatient(state, action);
     case 'SET_NOTE':

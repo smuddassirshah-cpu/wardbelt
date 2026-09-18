@@ -64,6 +64,7 @@ const SETTINGS_KEYS = [
   'theme',
   'purgeDays',
   'showOwnerPhone',
+  'keepScreenOn',
   'lastExportAt',
 ] as const satisfies readonly (keyof Settings)[];
 

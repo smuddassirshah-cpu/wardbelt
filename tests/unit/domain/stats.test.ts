@@ -176,6 +176,29 @@ describe('shiftStats', () => {
     });
   });
 
+  it('ignores DISCHARGE_BOOKED and still counts a completed retired step', () => {
+    const events: Event[] = [
+      {
+        id: 'b1',
+        at: clock.at(10),
+        type: 'DISCHARGE_BOOKED',
+        patientId: 'p',
+        dueAt: clock.at(300),
+      },
+      { id: 'b2', at: clock.at(11), type: 'DISCHARGE_BOOKED', patientId: 'p' },
+      {
+        id: 'r1',
+        at: clock.at(12),
+        type: 'TASK_COMPLETED',
+        patientId: 'p',
+        taskId: 'p:to_theatre',
+        taskKey: 'to_theatre',
+        custom: false,
+      },
+    ];
+    expect(shiftStats(state([], events), now)).toEqual({ ...EMPTY, tasksCompleted: 1 });
+  });
+
   it('takes the median admit-to-discharge time over patients discharged this shift', () => {
     const mk = (id: string, createdMin: number, dischargedMin?: number): Patient => {
       const p = fixturePatient(id, FORM_DOG, clock.at(createdMin));

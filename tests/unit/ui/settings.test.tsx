@@ -2,7 +2,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EXPORT_TEXT_LABEL,
+  KEEP_SCREEN_ON_HINT,
   NOTIFICATION_HINT,
+  NOTIFICATION_REPEAT,
+  SOUND_HINT,
   STORAGE_LINE,
   Settings,
   type SettingsProps,
@@ -41,9 +44,13 @@ describe('Settings', () => {
     expect(screen.getByRole<HTMLInputElement>('checkbox', { name: /Notifications/ }).checked).toBe(
       true,
     );
+    expect(screen.getByRole<HTMLInputElement>('checkbox', { name: /^Sound/ }).checked).toBe(false);
     expect(
-      screen.getByRole<HTMLInputElement>('checkbox', { name: /Click on completion/ }).checked,
+      screen.getByRole<HTMLInputElement>('checkbox', { name: /^Keep screen on/ }).checked,
     ).toBe(false);
+    expect(screen.getByText(SOUND_HINT)).toBeTruthy();
+    expect(screen.getByText(KEEP_SCREEN_ON_HINT)).toBeTruthy();
+    expect(screen.getByText(NOTIFICATION_HINT.granted).textContent).toContain(NOTIFICATION_REPEAT);
     expect(
       screen.getByRole<HTMLInputElement>('checkbox', { name: /Show owner phone field/ }).checked,
     ).toBe(true);
@@ -58,8 +65,10 @@ describe('Settings', () => {
 
   it('fires onChange partials for each toggle and the theme', () => {
     const { onChange, onRequestNotifications } = mount();
-    fireEvent.click(screen.getByRole('checkbox', { name: /Click on completion/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Sound/ }));
     expect(onChange).toHaveBeenLastCalledWith({ sound: true });
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Keep screen on/ }));
+    expect(onChange).toHaveBeenLastCalledWith({ keepScreenOn: true });
     fireEvent.click(screen.getByRole('checkbox', { name: /Show owner phone field/ }));
     expect(onChange).toHaveBeenLastCalledWith({ showOwnerPhone: false });
     fireEvent.click(screen.getByRole('checkbox', { name: /Notifications/ }));
@@ -90,6 +99,13 @@ describe('Settings', () => {
       expect(screen.getByText(NOTIFICATION_HINT[state])).toBeTruthy();
     },
   );
+
+  it('reflects the keep screen on setting when it is already on', () => {
+    mount({ settings: { ...FIXTURE_SETTINGS, keepScreenOn: true } });
+    expect(
+      screen.getByRole<HTMLInputElement>('checkbox', { name: /^Keep screen on/ }).checked,
+    ).toBe(true);
+  });
 
   it('shows the memory-mode line', () => {
     mount({ storageMode: 'memory' });

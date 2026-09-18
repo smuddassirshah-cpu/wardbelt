@@ -78,7 +78,7 @@ describe('format helpers', () => {
 
   it('counts done plus skipped over total', () => {
     const p = patientRecovery();
-    expect(progressOf(p.tasks)).toEqual({ done: 7, total: 19, complete: false });
+    expect(progressOf(p.tasks)).toEqual({ done: 6, total: 18, complete: false });
     expect(progressOf([])).toEqual({ done: 0, total: 0, complete: false });
     const all = p.tasks.map((t) => ({ ...t, status: 'skipped' as const }));
     expect(progressOf(all).complete).toBe(true);

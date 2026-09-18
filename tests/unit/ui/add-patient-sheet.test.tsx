@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/preact';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AddPatientSheet } from '../../../src/ui/AddPatientSheet';
 import { validatePatientForm } from '../../../src/domain/validate';
+import { INTAKE_PRESETS } from '../../../src/domain/types';
+import { NO_INTAKE_LABEL, intakeValue } from '../../../src/ui/AddPatientSheet';
 
 afterEach(cleanup);
 
@@ -20,7 +22,7 @@ describe('AddPatientSheet', () => {
     expect(screen.getByLabelText<HTMLInputElement>(/^Procedure/).maxLength).toBe(80);
     expect(screen.getByLabelText<HTMLInputElement>(/^Breed/).maxLength).toBe(40);
     expect(screen.getByLabelText<HTMLInputElement>(/^Kennel/).maxLength).toBe(10);
-    expect(screen.getByLabelText<HTMLTextAreaElement>(/^Notes/).maxLength).toBe(500);
+    expect(screen.getByLabelText<HTMLTextAreaElement>(/^Notes/).maxLength).toBe(1000);
     const weight = screen.getByLabelText(/^Weight/);
     expect(weight.getAttribute('inputmode')).toBe('decimal');
     const phone = screen.getByLabelText<HTMLInputElement>(/^Owner phone/);
@@ -28,11 +30,78 @@ describe('AddPatientSheet', () => {
     expect(phone.maxLength).toBe(20);
     expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Dog' }).checked).toBe(true);
     expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Unknown' }).checked).toBe(true);
-    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'None' }).checked).toBe(true);
-    expect(screen.getAllByRole('radio')).toHaveLength(4 + 5 + 4);
+    expect(screen.getAllByRole('radio')).toHaveLength(4 + 5);
     expect(screen.getByRole('group', { name: 'Species' })).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Sex' })).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Intake slot' })).toBeTruthy();
+    const intake = screen.getByLabelText<HTMLInputElement>(/^Intake time/);
+    expect(intake.type).toBe('time');
+    expect(intake.value).toBe('');
+    for (const preset of INTAKE_PRESETS) {
+      expect(screen.getByRole('button', { name: preset })).toBeTruthy();
+    }
+    expect(screen.getByRole('button', { name: NO_INTAKE_LABEL })).toBeTruthy();
+  });
+
+  it('fills the intake box from a preset and clears it with No set time', () => {
+    const onSubmit = vi.fn();
+    render(<AddPatientSheet showOwnerPhone={false} onSubmit={onSubmit} onClose={vi.fn()} />);
+    const intake = screen.getByLabelText<HTMLInputElement>(/^Intake time/);
+    fireEvent.click(screen.getByRole('button', { name: '09:00' }));
+    expect(intake.value).toBe('09:00');
+    type('Name', 'Fixture Nine');
+    type(/^Procedure/, 'Spay');
+    fireEvent.click(screen.getByRole('button', { name: 'Add patient' }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ intake: '09:00' }));
+    fireEvent.click(screen.getByRole('button', { name: NO_INTAKE_LABEL }));
+    expect(intake.value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Add patient' }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ intake: 'none' }));
+  });
+
+  it('submits a typed time and normalises a blank or padded one to none', () => {
+    const onSubmit = vi.fn();
+    render(<AddPatientSheet showOwnerPhone={false} onSubmit={onSubmit} onClose={vi.fn()} />);
+    type('Name', 'Fixture Ten');
+    type(/^Procedure/, 'Dental');
+    const intake = screen.getByLabelText<HTMLInputElement>(/^Intake time/);
+    fireEvent.input(intake, { target: { value: '07:45' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add patient' }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ intake: '07:45' }));
+    expect(intakeValue(' 08:15 ')).toBe('08:15');
+    expect(intakeValue('   ')).toBe('none');
+    expect(intakeValue(undefined)).toBe('none');
+  });
+
+  it('refuses a half-typed intake rather than submitting no set time', () => {
+    const onSubmit = vi.fn();
+    render(<AddPatientSheet showOwnerPhone={false} onSubmit={onSubmit} onClose={vi.fn()} />);
+    type('Name', 'Fixture Eleven');
+    type(/^Procedure/, 'Spay');
+    const intake = screen.getByLabelText<HTMLInputElement>(/^Intake time/);
+    Object.defineProperty(intake, 'validity', { value: { badInput: true }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Add patient' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText('Enter a time as HH:MM, or none')).toBeTruthy();
+    expect(intake.getAttribute('aria-invalid')).toBe('true');
+
+    Object.defineProperty(intake, 'validity', { value: { badInput: false }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Add patient' }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ intake: 'none' }));
+  });
+
+  it('shows the validator message when the intake value is not a time', () => {
+    render(
+      <AddPatientSheet
+        showOwnerPhone={false}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+        initialErrors={{ intake: 'Enter a time as HH:MM, or none' }}
+      />,
+    );
+    const intake = screen.getByLabelText<HTMLInputElement>(/^Intake time/);
+    expect(intake.getAttribute('aria-invalid')).toBe('true');
+    const id = intake.getAttribute('aria-describedby') ?? '';
+    expect(document.getElementById(id)?.textContent).toBe('Enter a time as HH:MM, or none');
   });
 
   it('hides the owner phone field unless enabled', () => {
@@ -68,7 +137,7 @@ describe('AddPatientSheet', () => {
     type(/^Weight/, '4.256');
     type(/^Procedure/, 'Dental');
     type(/^Kennel/, 'C3');
-    fireEvent.click(screen.getByRole('radio', { name: '10:00' }));
+    fireEvent.click(screen.getByRole('button', { name: '10:00' }));
     type(/^Owner phone/, '+44 0000 000000');
     type(/^Notes/, 'Nervous handler required');
     fireEvent.click(screen.getByRole('button', { name: 'Add patient' }));
@@ -94,7 +163,7 @@ describe('AddPatientSheet', () => {
     type(/^Weight/, 'heavy');
     type(/^Kennel/, 'k'.repeat(11));
     type(/^Owner phone/, '12');
-    type(/^Notes/, 'n'.repeat(501));
+    type(/^Notes/, 'n'.repeat(1001));
     fireEvent.click(screen.getByRole('button', { name: 'Add patient' }));
     expect(onSubmit).not.toHaveBeenCalled();
     const expected: Record<string, string> = {
@@ -104,7 +173,7 @@ describe('AddPatientSheet', () => {
       Procedure: 'Required',
       Kennel: 'At most 10 characters',
       'Owner phone': 'Between 6 and 20 characters',
-      Notes: 'At most 500 characters',
+      Notes: 'At most 1000 characters',
     };
     for (const [label, message] of Object.entries(expected)) {
       const input = screen.getByLabelText(new RegExp(`^${label}`));

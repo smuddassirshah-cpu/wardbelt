@@ -1,6 +1,8 @@
-// Decision notes: PLAN.md section 6 lists nineteen step keys and nineteen two-letter codes
-// although section 1 says "17-step"; the enumerated list is binding. Order is the array index.
-// Timed steps (check_1..4) get dueAt when in_theatre completes; nothing else is timed by default.
+// Decision notes: eighteen step keys after the field test retired `to_theatre`
+// (CHANGES-2026-09.md section 3); the enumerated list is binding. Order is the array index.
+// Codes stay for the remaining steps even though the belt now draws icons, because custom
+// cells and the shift summary still use them. Timed steps (check_1..4) get dueAt when
+// handover_theatre completes; nothing else is timed by default.
 import { type Phase, type StepKey } from './types';
 
 export interface TemplateStep {
@@ -15,7 +17,6 @@ export const TEMPLATE: readonly TemplateStep[] = Object.freeze([
   { key: 'bloods', code: 'BL', label: 'Bloods', phase: 'PRE_OP' },
   { key: 'draw_meds', code: 'DM', label: 'Draw up meds', phase: 'PRE_OP' },
   { key: 'premed', code: 'PM', label: 'Premed', phase: 'PRE_OP' },
-  { key: 'to_theatre', code: 'TH', label: 'To theatre', phase: 'PRE_OP' },
   { key: 'in_theatre', code: 'IT', label: 'In theatre', phase: 'THEATRE' },
   { key: 'handover_theatre', code: 'HT', label: 'Handover from theatre', phase: 'RECOVERY' },
   { key: 'check_1', code: 'C1', label: 'Post-op check 1', phase: 'RECOVERY' },

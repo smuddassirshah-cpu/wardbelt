@@ -1,7 +1,7 @@
 # Build state
 
-Current stage: 8 complete; deployed
-Last updated: 2026-09-09
+Current stage: 8 complete; deployed. Post field test change set merged on claude/post-field-test-changes-mh1cb7 (2026-09-18), not yet on main.
+Last updated: 2026-09-18
 Mode: autonomous one-shot (see CLAUDE.md)
 
 ## Stages
@@ -650,7 +650,480 @@ Running log. One line each: date, decision, reason, PLAN.md deviation? y/n.
 Anything blocking or deferred, with the stage it affects.
 
 ## Next action
-none: deployed
+Human decision: merge claude/post-field-test-changes-mh1cb7 into main so CI and the Pages workflow deploy the change set. Nothing else is pending.
+
+## Post field test change set (September 2026, orchestrator record)
+
+Binding spec: docs/CHANGES-2026-09.md. Findings and decisions in its section 0; PLAN.md sections 3, 6, 7, 8 and 10 updated; DECISIONS.md rows F.1 to F.22.
+
+| WP | Deliverable | Branch | Verifier | Merged |
+|----|-------------|--------|----------|--------|
+| A | Domain and store: retire to_theatre, free-text intake, ward status, discharge booking, theatre return on handover, notes 1000 | change/a-domain-store | PASS 2026-09-17 (first round) | a0cad61 |
+| B | Scheduler: 5 minute repeat while overdue, notification vibrate and silent false, tone hook, wake lock | change/b-scheduler | 1 FAIL (wake lock could throw from disable) then PASS 2026-09-17 | 716a877 |
+| C | UI, e2e, README: status chip, step icons, book discharge, intake editing, due tone, keep screen on | change/c-ui | 1 FAIL (timer chip and name truncated at 393 px; stale README row) then PASS 2026-09-18 | 4d512b5 |
+
+Order: A and B implemented concurrently; B merged first (kept the gate green), A second (expected UI compile breakage until C), C last. Spec amendments by the orchestrator after C's first verification: the timer chip shows the step icon plus countdown rather than the full label (the label truncated itself and the name), and the status chip sits on the second header line under the name.
+
+Full gate on the merged branch at 5106b8d (2026-09-18): `npm run lint` eslint 0 problems and prettier clean; `npm run typecheck` both projects clean; `npm test` 45 files, 575 tests passed, coverage statements 99.23%, branches 97.35%, functions 98.4%, lines 99.36%, src/domain 100% thresholds met; `npm run build` index js 103.96 kB (gzip 35.82), css 15.25 kB, sw.mjs 17.07 kB, precache 13 entries 136.72 KiB; `npm run test:e2e` 40 passed (Pixel 5 profile, axe clean in both themes). e2e in this environment ran through a browser path shim because the container ships Chromium build 1194 and Playwright 1.63 looks for 1243; nothing in the repository depends on the shim, and CI installs its own browser.
+
+Known limitations carried into the field: with the screen off, Android freezes the page's timers, so alerts still arrive late unless "Keep screen on" is enabled or the phone is woken; there is no server for push. Alert repeats land within 60 s of each 5 minute mark.
 
 Deploy confirmation (orchestrator, 2026-09-09): CI run and Pages run for main commit 5b76ee9 both completed with conclusion success. Live checks against https://smuddassirshah-cpu.github.io/wardbelt/ : index 200 with the CSP meta; manifest.webmanifest 200 (name Wardbelt, start_url and scope /wardbelt/, display standalone, icons 192, 512 and maskable 512, each served 200 image/png); sw.js 200 (17 precache entries including index.html); all asset references under /wardbelt/assets/. Playwright Pixel 5 against the live URL: navigator.serviceWorker.ready resolves with scope /wardbelt/, the controller is /wardbelt/sw.js after reload, an offline reload still renders the board, the empty state and the 48 px Add patient button render after hydration, zero console errors.
 
+
+### Post field test WP A: domain and store (implementing subagent, 2026-09-17)
+
+**Built**
+
+- `src/domain/types.ts`: CHANGES-2026-09.md section 2 applied verbatim. `INTAKES` removed;
+  `INTAKE_NONE`, `Intake = string` and `INTAKE_PRESETS` added. `StepKey` drops `to_theatre`;
+  `RETIRED_STEP_KEYS` and `RetiredStepKey` added and `Event.taskKey` widened to
+  `TaskKey | RetiredStepKey`. `Patient.dischargeBookedAt?`, `EventType 'DISCHARGE_BOOKED'`,
+  `Settings.keepScreenOn` with `DEFAULT_SETTINGS.keepScreenOn: false`, and the `BOOK_DISCHARGE`
+  and `SET_INTAKE` action members.
+- `src/domain/template.ts`: `to_theatre` removed, eighteen steps, order, phases and codes of the
+  survivors unchanged.
+- `src/domain/patient.ts`: `settle` records `theatreReturnAt` and schedules the checks on a done
+  `handover_theatre`; completing `in_theatre` records nothing timed. `revertTask` clears both on a
+  reverted done `handover_theatre` and leaves them alone for a skip or for `in_theatre`. New
+  `bookDischarge(p, bookedAt)` sets or deletes `dischargeBookedAt`, same reference on a no-op, no
+  effect on a discharged patient.
+- `src/domain/status.ts` (new): `WardStatus` and `wardStatus(p)`, the four ordered rules in one
+  O(n) pass over the tasks; custom tasks count by phase.
+- `src/domain/reducer.ts`: `BOOK_DISCHARGE` applies `bookDischarge` and appends
+  `DISCHARGE_BOOKED` with `dueAt` only when setting; `SET_INTAKE` validates through
+  `isIntake` and replaces `intake` with no event. Both return the same state reference on an
+  unknown patient, an unchanged value or an invalid input; an unparseable `bookedAt` is caught by
+  `timestampsValid`. UNDO is untouched, so bookings survive it.
+- `src/domain/validate.ts`: intake is `'none'` or `/^([01]\d|2[0-3]):[0-5]\d$/` with the message
+  `Enter a time as HH:MM, or none` (exported as `isIntake` so the reducer shares the rule);
+  `notes` and task `note` cap at `NOTES_MAX = 1000`; tasks with a retired key are dropped from
+  records and imports before validation and the survivors are renumbered 0..n-1 in their original
+  order; `validateEvent` accepts a retired `taskKey`; `isTaskKey` uses `Object.hasOwn`;
+  `dischargeBookedAt` is an optional ISO field; settings gain `keepScreenOn`, defaulting to false
+  when the field is missing so older exports still import.
+- `src/domain/stats.ts`: `DISCHARGE_BOOKED` joins the ignored event types.
+- `src/store/repo.ts`: `keepScreenOn` added to `SETTINGS_KEYS` so it is persisted and read back.
+  No schema change: `DB_VERSION` stays 1 and `TRANSFER_SCHEMA_VERSION` stays 1.
+- `tests/fixtures/synthetic.ts`: eighteen-step belt, `patientInTheatre` and `patientRecovery`
+  rebuilt without `to_theatre`, `patientRecovery`'s `theatreReturnAt` now pinned to the
+  `handover_theatre` completion (`in_theatre` done two minutes earlier), `FIXTURE_SETTINGS` gains
+  `keepScreenOn: false`. Check due times and the fixed clock are unchanged.
+- Tests: new `tests/unit/domain/status.test.ts` (7 cases) and `tests/unit/domain/template.test.ts`
+  (3 cases); new cases in `patient.test.ts` (bookDischarge set/replace/clear/discharged/survives
+  discharge, in_theatre records nothing, revert rules), `reducer.test.ts` (BOOK_DISCHARGE
+  set/clear/no-op/invalid/discharged/UNDO, SET_INTAKE valid/invalid/unchanged),
+  `validate.test.ts` (intake boundaries `00:00`, `23:59`, `24:00`, `9:00` and friends, notes at
+  1000 and 1001, prototype-chain keys, retired task drop with contiguous orders, retired event
+  key, optional `dischargeBookedAt`, `keepScreenOn` default), `urgency.test.ts` (free-text intake
+  ranks 2 and sorts by string), `stats.test.ts` (DISCHARGE_BOOKED ignored, retired completion
+  still counted), `store/repo.test.ts` (stored patient with `to_theatre` at order 4 loads as
+  eighteen contiguous tasks, its completion event still counts in `shiftStats`, and the next
+  `savePatient` writes the trimmed record) and `store/transfer.test.ts` (an older export with a
+  `to_theatre` task, a retired event `taskKey` and no `keepScreenOn` imports cleanly).
+
+**DoD evidence**
+
+- `npx eslint src/domain src/store tests/unit/domain tests/unit/store tests/fixtures
+  --max-warnings 0`: clean, no output.
+- `npx prettier --check src/domain src/store tests/unit/domain tests/unit/store tests/fixtures`:
+  `All matched files use Prettier code style!`
+- `npx eslint tests/unit/scaffold.test.tsx --max-warnings 0` and the matching prettier check:
+  clean (see Deviations).
+- `npx tsc -p tsconfig.json --noEmit`: two errors, both outside WP A's directories and both
+  expected consequences of the section 2 contract change:
+  - `src/ui/AddPatientSheet.tsx(6,26)`: `'"@domain/types"' has no exported member named 'INTAKES'`
+  - `tests/unit/app/ids-actions.test.ts(139,31)`: a literal `Settings` without `keepScreenOn`
+  No errors in `src/domain`, `src/store`, `tests/unit/domain`, `tests/unit/store` or
+  `tests/fixtures`. `npx tsc -p tsconfig.sw.json --noEmit`: clean.
+- `npx vitest run --coverage tests/unit/domain tests/unit/store`: `Test Files 13 passed (13)`,
+  `Tests 225 passed (225)`, no threshold errors. Aggregated `src/domain` coverage from
+  `coverage/coverage-summary.json`: statements 614/614 (100%), branches 465/465 (100%),
+  functions 116/116 (100%), lines 598/598 (100%). Every file in `src/domain` is individually at
+  100/100/100/100. `src/store` from the same run: `repo.ts` 100 stmts / 97.1 branches,
+  `db.ts` 100 stmts / 90 branches (unchanged from the stage 2 baseline; the store thresholds are
+  not 100%).
+- The full unit run was used only to enumerate out-of-scope breakage, not as a gate:
+  `Test Files 8 failed | 36 passed (44)`, `Tests 23 failed | 492 passed (515)`. Every failure is
+  in WP C's directories. `tests/unit/scheduler` is green.
+
+**Deviations from the spec**
+
+1. `tests/unit/scaffold.test.tsx` is owned by no work package in CHANGES-2026-09.md section 1 but
+   asserts only WP A artefacts (`TEMPLATE.length`, the code set, and that every fixture patient
+   has at least the template's task count). Its three `19` literals were changed to `18`; nothing
+   else in the file was touched. Left broken it would have failed a gate no one owns.
+2. `tests/unit/domain/template.test.ts` is new and was not asked for. It was needed because
+   `customCode` in `src/domain/template.ts` had no domain test (it was only covered through
+   `src/ui/format.ts`), so `src/domain` could not reach the 100% threshold when the coverage run
+   is restricted to `tests/unit/domain` and `tests/unit/store`. The file also pins the
+   eighteen-step shape.
+3. Section 3 does not say what the reducer should do when `BOOK_DISCHARGE` changes nothing (same
+   time again, clearing an absent booking, a discharged patient). It returns the same state
+   reference and appends no event, matching every other reducer no-op and the "same reference on
+   every no-op" rule. A booking on a discharged patient is therefore silently ignored rather than
+   logged.
+4. `readTasks` renumbers `order` to the array index for every stored or imported record, not only
+   for records that carried a retired task. That is the simplest reading of "renumber order to
+   0..n-1 in the original order"; it is a no-op for well-formed records, whose array order and
+   `order` field already agree.
+5. `keepScreenOn` was added to `SETTINGS_KEYS` in `src/store/repo.ts`. Section 3 says the store
+   has no schema change, and this is not one (settings are one row per field, not a schema), but
+   without it the setting would never be persisted.
+6. The fixtures' `patientRecovery` keeps its existing check due times and `theatreReturnAt`; only
+   which task carries the completion moved (`handover_theatre` now completes at the return,
+   `in_theatre` two minutes earlier), so scheduler and UI tests that depend on the timings are
+   unaffected by the fixture change itself.
+
+**Open questions**
+
+- `INTAKE_PRESETS` is exported but unused inside WP A; WP C is expected to consume it in the
+  add-patient sheet and the patient sheet.
+- `fixtureEvents()` still carries the `in_theatre` `TASK_COMPLETED` event at the return time. It
+  is history, not derived state, so it stays valid, but if WP C or a verifier wants the fixture
+  events to mirror the new rule the event's `taskKey` should become `handover_theatre`.
+- Nothing in WP A calls `wardStatus`; its first consumer is WP C's `PatientRow`.
+
+**Out-of-scope files that now fail to compile or test (WP C to fix)**
+
+Typecheck:
+- `src/ui/AddPatientSheet.tsx` (imports the removed `INTAKES`)
+- `tests/unit/app/ids-actions.test.ts` (a `Settings` literal without `keepScreenOn`)
+
+Unit tests (all count or contract drift from eighteen steps, the removed `to_theatre` cell and the
+new intake control):
+- `tests/unit/app/app.test.tsx`
+- `tests/unit/hardening/storage-unavailable.test.tsx`
+- `tests/unit/ui/add-patient-sheet.test.tsx`
+- `tests/unit/ui/belt.test.tsx`
+- `tests/unit/ui/dev-gallery.test.tsx`
+- `tests/unit/ui/format.test.ts`
+- `tests/unit/ui/patient-row.test.tsx`
+- `tests/unit/ui/patient-sheet.test.tsx`
+
+`tests/e2e` was not run; `tests/e2e/helpers.ts` still lists `To theatre` and is WP C's per
+CHANGES-2026-09.md section 1.
+
+### Post field test WP B: scheduler (implementing subagent, 2026-09-17)
+
+Branch `change/b-scheduler`. Scope: CHANGES-2026-09.md section 4 only. Files touched:
+`src/scheduler/timers.ts`, `src/scheduler/notify.ts`, `src/scheduler/wakelock.ts` (new),
+`tests/unit/scheduler/timers.test.ts`, `tests/unit/scheduler/notify.test.ts`,
+`tests/unit/scheduler/wakelock.test.ts` (new). Nothing outside `src/scheduler` and
+`tests/unit/scheduler` was changed; no exported name or signature was altered, only added, so
+`src/ui/app/session.ts` compiles unchanged.
+
+**Built**
+
+- `timers.ts`: `REPEAT_MS = 5 * 60_000` exported. The announcement map is now
+  `taskId -> { dueAt, announcedAt }`. A task that is still `todo`, still overdue and last
+  announced at least `REPEAT_MS` ago is announced again in the next `notifier.due` batch with its
+  `announcedAt` refreshed. The map is still rebuilt from the board on every sweep and every arm,
+  so completed, skipped, removed and rescheduled tasks drop out or restart exactly as before. The
+  armed delay is `clamp(min(earliest unannounced dueAt, earliest announcedAt + REPEAT_MS) - now,
+  0, maxDelayMs)`, or `maxDelayMs` when nothing is pending. `DUE` is dispatched on the first
+  announcement of a `dueAt` only, never on a repeat, so the `Action` union is untouched.
+  `onVisible`, `nextDueAt`, `start`, `stop` and `reschedule` behave as before.
+- `notify.ts`: `DueNotificationOptions` now also carries `vibrate: number[]`, and the due
+  notification is shown with `vibrate: [...DUE_VIBRATION]` and `silent: false` (`silent` is
+  already on the DOM `NotificationOptions`, `vibrate` is not). `NotifyDeps` gains
+  `sound?: () => void`; `due` calls it after the vibration and before the permission check, so the
+  tone plays in every permission state including `unsupported`, and a throw from it is caught and
+  routed to `onError` as `Could not play the due tone[: message]` without stopping the vibration
+  or the notification. `browserNotifyDeps` does not set `sound`.
+- `wakelock.ts` (new): `createWakeLock(deps?)` returning `{ enable, disable, held }`, plus
+  `browserWakeLockDeps()` and the exported `WakeLockSentinel` shape (a named alias for the inline
+  sentinel type in the spec, added so the module can talk about it; no interface change).
+  `enable` acquires when visible and subscribes to visibility so it re-acquires every time the
+  page comes back; the platform's `release` event clears the held sentinel. `disable` releases,
+  unsubscribes and, when a request is in flight, releases the sentinel on arrival. Both are
+  idempotent. A rejected or synchronously throwing request is reported once per attempt as
+  `Could not keep the screen on[: message]` and leaves the lock wanted, so the next visibility
+  change retries; a rejected release is reported as `Could not release the screen wake lock`.
+  Every API is feature-detected (`navigator.wakeLock`, `navigator.wakeLock.request`, `document`),
+  nothing throws where one is missing, and no patient data reaches the module.
+
+**DoD evidence** (worktree `/home/user/wardbelt-wt/b`, whole repo, not just the package)
+
+- `npm run lint`: `eslint . --max-warnings 0` clean, then `prettier --check .` prints
+  `All matched files use Prettier code style!`. No rule disabled, no config touched.
+- `npm run typecheck`: `tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sw.json --noEmit`, no
+  output, exit 0.
+- `npm test` (`vitest run --coverage`): `Test Files 43 passed (43)`, `Tests 514 passed (514)`.
+  `tests/unit/scheduler` is 4 files, 89 tests (clock 11, timers 36 was 28, notify 23 was 19,
+  wakelock 19 new). Whole-repo coverage: statements 99.21% (1905/1920), branches 97.21%
+  (1256/1292), functions 98.47% (515/523), lines 99.35% (1854/1866); `src/domain` stays at its
+  100% threshold. `src/scheduler` from `coverage/coverage-summary.json`: `clock.ts`, `notify.ts`,
+  `timers.ts` and `wakelock.ts` each 100% statements, branches, functions and lines.
+- `npm run build`: `index.html` 1.35 kB, `assets/index-*.css` 14.93 kB (gzip 3.13 kB),
+  `assets/index-*.js` 93.99 kB (gzip 32.54 kB), `assets/DevGallery-*.js` 8.15 kB,
+  `assets/workbox-window.prod.es5-*.js` 5.75 kB, `manifest.webmanifest` 0.50 kB, `sw.mjs`
+  17.07 kB (gzip 5.73 kB), precache 13 entries (126.04 KiB). Unchanged from the pre-change build:
+  `wakelock.ts` has no importer yet, so it is tree-shaken until WP C wires it.
+- Tests use the fake clock only. No `vi.useFakeTimers` was added anywhere; the wake lock tests
+  drain the microtask queue with awaited `Promise.resolve()` and drive visibility by hand.
+
+**Deviations from the spec**
+
+- The sentinel type in `WakeLockDeps.request` is written as an exported named interface
+  `WakeLockSentinel` rather than repeated inline. The shape is identical to the spec's inline
+  type, so the interface is unchanged for WP C.
+- Six existing `timers.test.ts` cases asserted "no further notification" over windows that now
+  cross a repeat boundary. None were deleted: each was tightened to assert the repeat instead
+  (exact counts at the boundary, and `DUE` still dispatched once). The renamed case is
+  "fires exactly one DUE and one notification when a task becomes due, and no repeat before
+  REPEAT_MS".
+- A backwards clock jump that leaves an announced task not yet due suspends its repeats until it
+  is overdue again (the spec says "still overdue"), and the announcement is kept rather than
+  re-announced when the clock returns. Covered by a test.
+
+**Open questions (mostly for WP C)**
+
+- `sound`: WP C passes `sound: () => dueTone({ sound: state.value.settings.sound, onError:
+  transient })` in the `createNotifier` deps in `session.ts`. It must read the setting live at
+  call time (a closure over `state.value`), not capture it at construction. Note that the current
+  `gated` wrapper short-circuits `notifier.due` to a bare `notifier.vibrate` when notifications
+  are off, which would skip the tone; `gated` should call `notifier.due` in both branches, or
+  play the tone itself in the notifications-off branch, otherwise finding 3 is only half fixed.
+- Wake lock: `session.ts` creates it once with `createWakeLock({ ...browserWakeLockDeps(),
+  onError: transient })` and drives it from an `effect` on `settings.keepScreenOn` (`enable` when
+  true, `disable` when false). Both calls are idempotent, so the effect needs no guard. The
+  session should `disable()` on teardown alongside `timers.stop()` if a teardown path exists.
+  Errors arrive as one plain sentence per attempt, suitable for the transient banner as is.
+- Repeats are driven by the sweep, which is capped at 60 s, so a repeat lands within 60 s of
+  `announcedAt + REPEAT_MS`, not to the millisecond. The Settings copy ("Alerts repeat every 5
+  minutes while a check is overdue") is accurate at this granularity.
+- `REPEAT_MS` is exported from `@scheduler/timers` if WP C wants the Settings hint to derive the
+  "5 minutes" rather than hard-code it.
+
+**Fix round (verifier FAIL, 2026-09-17)**
+
+The verifier returned one failure and two notes, all in `src/scheduler/wakelock.ts`; all three are
+fixed with a regression test each, and no exported name or signature changed. F1: `release()`
+throwing synchronously escaped through `disable()`, so the module could throw after all. `drop`
+now guards the call the same way `acquire` guards `request()`, routing a synchronous throw to the
+same `Could not release the screen wake lock` message as a rejection. N1: a request that rejected
+after `disable` still reported, which would raise a banner just as the nurse switched "Keep screen
+on" off. Acquisition failures now go through one `acquireFailed` helper that clears `pending` and
+reports only while the lock is still wanted; a later `enable` retries as before. N2: a throwing
+`sentinel.addEventListener` left `held()` true while reporting an acquisition failure. The
+sentinel is now adopted only after its release listener is attached, and on that failure it is
+released and the failure reported, so `held()` is false and the message agrees. Tests added:
+"never lets a synchronously throwing release escape disable", "does not report a request that
+rejects after disable" (including that a later enable still succeeds), and "releases the sentinel
+and reports when its release listener cannot be attached". Gate re-run green in the worktree:
+lint and prettier clean; typecheck clean; `Test Files 43 passed (43)`, `Tests 517 passed (517)`
+(`tests/unit/scheduler` 92, wakelock 22); repo coverage statements 99.22% (1913/1928), branches
+97.21% (1258/1294), functions 98.47% (515/523), lines 99.35% (1862/1874), with all four
+`src/scheduler` modules still at 100% on every metric; build byte-identical to the first round
+(`index-DqKuzSBK.js` 93.99 kB gzip 32.54 kB, `sw.mjs` 17.07 kB, precache 13 entries 126.04 KiB).
+
+### Post field test WP C: UI, service worker, e2e, README (implementing subagent, 2026-09-17)
+
+Branch `change/c-ui`, worktree `/home/user/wardbelt-wt/c`, from the integration branch with WP A
+and WP B merged. Scope: CHANGES-2026-09.md section 5. Files touched: `src/ui/**` (including the
+new `src/ui/icons.tsx`), `tests/unit/{ui,app,hardening}`, `tests/e2e/**`, `README.md`,
+`docs/screenshots/*.png`. Nothing in `src/domain`, `src/store`, `src/scheduler`, `tests/fixtures`
+or `docs/PLAN.md` was changed, and `src/sw.ts` needed no change.
+
+**Built**
+
+- `src/ui/icons.tsx` (new): one inline SVG line icon per template step on a 16 x 16 grid,
+  `stroke="currentColor"`, `fill="none"`, stroke 1.5, round joins, `aria-hidden`, each carrying
+  `data-icon="<step key>"` so tests and the gallery can name them. `TaskIcon` draws one step;
+  `TaskGlyph` picks the icon for a template task and the two-letter code for a custom one. The
+  mapping is the one in section 5; the four checks are a stethoscope with a bold digit.
+- `src/ui/Belt.tsx` and the patient sheet's task rows render `TaskGlyph`, so every belt cell in
+  the app draws the icon and custom cells keep their letters. `taskCode` stays for custom cells
+  and the shift summary. The done cell keeps a white glyph because the icon inherits
+  `currentColor` from `.belt__square--done`.
+- `src/ui/PatientRow.tsx`: neutral `Chip` after the name and species from `wardStatus(patient)`
+  with a visually-hidden `Status ` prefix and nothing once discharged; timer chip now names the
+  task in full with the visually-hidden duplicate dropped; a mono `Home HH:MM` chip after the
+  intake chip while a booking exists and the patient is active, in the warning tone once the
+  booked time has passed.
+- `src/ui/PatientSheet.tsx`: section "Discharge" gains `Booked for HH:MM`, a `Book discharge`
+  button that opens a `type="time"` field with `Save booking` and, when a booking exists,
+  `Clear booking`. The saved value is today's local date at that time through
+  `new Date(...).toISOString()`. The existing Discharge button and its disabled
+  `Discharged HH:MM` state are untouched. New "Intake" section with the shared intake control and
+  `Save intake`, offered on active patients only. All three note textareas cap at
+  `NOTES_MAX` (1000) imported from the validator.
+- `src/ui/AddPatientSheet.tsx`: the intake radio group is replaced by `IntakeField`, a
+  `type="time"` box with the three `INTAKE_PRESETS` as 48 px quick picks and a `No set time`
+  control; `intakeValue` trims the box and maps an empty one to `'none'` before validation. The
+  control and the trim are exported and reused by the patient sheet.
+- `src/ui/feedback.ts`: `dueTone(opts)` plays 880 Hz and 660 Hz for 150 ms with an 80 ms gap on
+  the existing lazy AudioContext, scheduled on the context clock rather than with timers; silent
+  when `sound` is false; a suspended context is resumed first and every failure reaches
+  `onError`. The click and the tone share one `withAudio` helper.
+- `src/ui/app/session.ts`: `playDueTone` reads `settings.sound` at call time and is passed as the
+  notifier's `sound` dep *and* called in the notifications-off branch of `gated`, so the tone
+  sounds in both branches (WP B's open question). The wake lock is built once with
+  `createWakeLock({ ...browserWakeLockDeps(), onError: transient })` and driven by an `effect` on
+  `settings.keepScreenOn`; the new `stop()` calls `timers.stop()`, `wakeLock.disable()` and
+  disposes both effects. New `setIntake` and `bookDischarge` actions; the booking toast is
+  `Discharge booked for HH:MM` with no undo.
+- `src/ui/app/actions.ts`: `setIntake` and `bookDischarge` factories; a cleared booking omits
+  `bookedAt` rather than sending undefined.
+- `src/ui/Settings.tsx`: `Sound` with the section 5 hint, the new `Keep screen on` toggle and
+  hint, and `Alerts repeat every 5 minutes while a check is overdue.` appended to all four
+  notification hints.
+- `src/ui/DevGallery.tsx`: a seventh row/belt variant with an overdue booking, a future booking
+  on the custom-task variant, a fifth patient sheet ("Discharge booked"), and the chips section
+  extended with the three status chips and both tones of the Home chip.
+- `src/ui/ui.css`, `src/ui/tokens.css`: `--icon: 16px` token and a `.icon` rule; `.chip` can
+  shrink and hides overflow; `.chip__label` is the only part that ellipsises; `.row__side` is a
+  two-line column (`.row__side-line` holds intake and Home together) so the header never exceeds
+  48 px; the status chip and species do not shrink; on handsets (`width <= 430px`) the timer chip
+  is capped at 22ch so a long label cannot push the patient's name off the row.
+- `README.md`: 18 steps and the icon list instead of the two-letter codes, the status chip, the
+  handover scheduling the checks, Book discharge, free-text intake, Sound, Keep screen on, the
+  five-minute repeat, notes 1000, the new `status.ts` and `wakelock.ts` rows in the tree, and
+  every screenshot alt text rewritten to the new board. `docs/screenshots/*.png` regenerated from
+  the production build with `WARDBELT_EVIDENCE=1`.
+- Tests: unit coverage for the chip in every status, icons for every step and letters for custom,
+  the timer chip label, the booking flow (set, clear, past-time warning tone, discharged hides
+  the chip and the controls), intake presets, No set time, the trim and the validator message,
+  `SET_INTAKE` and `BOOK_DISCHARGE` wiring through the session and the App, maxLength 1000,
+  `dueTone` gating and failure paths, the wake lock effect on the setting (including a refused
+  lock reaching the banner and `stop()` releasing it), the Settings toggles, and a zero-cell belt
+  rendering as empty rather than complete. e2e: `helpers.ts` step list without `To theatre` plus
+  `completeThroughHandover` and `bookDischarge` helpers; a new booking flow (book, row chip,
+  clear, rebook in the past for the warning tone, then discharge); the theatre test rewritten to
+  assert the checks appear only after `Handover from theatre`; icon assertions in the gallery,
+  flows and a11y specs.
+
+**DoD evidence** (worktree `/home/user/wardbelt-wt/c`, commit 49d0453)
+
+- `npm run lint`: `eslint . --max-warnings 0` clean, `prettier --check .` prints
+  `All matched files use Prettier code style!`. No rule disabled, no config touched.
+- `npm run typecheck`: `tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sw.json --noEmit`, no
+  output, exit 0.
+- `npm test` (`vitest run --coverage`): `Test Files 45 passed (45)`, `Tests 572 passed (572)`
+  (was 43 files / 517 tests). Coverage: statements 99.23% (2082/2098), branches 97.33%
+  (1386/1424), functions 98.4% (554/563), lines 99.36% (2031/2044); the `src/domain/**` 100%
+  thresholds pass. `src/ui` 98.61% statements / 95.48% branches, `src/ui/app` 98.25% / 94.93%.
+- `npm run build`: `index.html` 1.35 kB, `assets/index-*.css` 15.41 kB (gzip 3.25 kB),
+  `assets/index-*.js` 103.61 kB (gzip 35.72 kB), `assets/DevGallery-*.js` 8.78 kB (gzip 3.02 kB),
+  `assets/workbox-window.prod.es5-*.js` 5.75 kB, `manifest.webmanifest` 0.50 kB, `sw.mjs`
+  17.07 kB (gzip 5.73 kB), precache 13 entries (136.51 KiB). App JS grew 9.6 kB raw / 3.2 kB
+  gzipped over WP B (the icons, the booking and intake controls); the PLAN.md stage 7 budget of
+  60 kB gzipped for the bundle is still met (35.72 + 3.25 + 2.36 = 41.3 kB gzipped).
+- `npm run test:e2e` (`playwright test`, Pixel 5 profile, production build via `vite preview` on
+  4173): `39 passed (1.2m)`, 0 failed: dev-gallery 13 (one new icon test), flows 11 (one new
+  booking flow), transfer 6, a11y 2, screenshots 1, shift 1, install 3, smoke 2. axe
+  (wcag2a/wcag2aa/wcag21aa) is clean on the board with data and the open sheet in both themes
+  with the SVG icons in place, and every visible target is still at least 48 px.
+- Screenshots: regenerated with `WARDBELT_EVIDENCE=1`; each file is under the spec's 300 kB cap
+  (largest 157 kB) and the board, sheet, add, summary, settings and dark board all show the new
+  UI. They were read back and inspected, which is how the two layout defects below were found.
+
+**Deviations and decisions**
+
+1. The check icon is the stethoscope plus a bold digit, as first specified, not the
+   digit-in-a-circle fallback: at 24 px in the Playwright screenshot the digits 1 to 4 are
+   clearly legible in both the outlined and the filled state. The stethoscope itself reads as a
+   compact mark rather than a literal instrument at that size; the belt's accessible name and the
+   sheet's label carry the meaning, so it was kept.
+2. Icons are rendered in the patient sheet's task cells as well as the belt. Section 5 names only
+   the belt, but the sheet's cell is the same `.belt__square` component and leaving codes there
+   would have been the only place in the app still showing them.
+3. `IntakeField` and `intakeValue` live in `AddPatientSheet.tsx` and are imported by
+   `PatientSheet.tsx` rather than becoming a new component file, so the PLAN.md section 3 file
+   tree gains only the `icons.tsx` the change set asked for, and the admission form and the later
+   edit cannot drift apart.
+4. The patient sheet asks `validatePatientForm({ intake: value })` for the intake message and
+   reads only `errors.intake`, rather than copying the wording. The validator owns the rule and
+   the string.
+5. Row layout: two defects were visible only in the rendered screenshot and are fixed in CSS.
+   (a) With the full task label, the timer chip pushed the patient's name to zero width; the chip
+   is now split into a shrinkable `.chip__label` and a fixed countdown, and on handsets it is
+   capped at 22ch, so a long label is cut short before the name is. (b) Three stacked chips
+   (timer, intake, Home) would have made the side column 68 px and broken the 88 px row, so
+   intake and Home share one line inside `.row__side`. The section 5 wording "after the intake
+   chip in `row__side`" is honoured; only the line they sit on differs.
+6. The space between the timer chip's label and its countdown is a non-breaking space: with the
+   two as separate flex items an ordinary leading space collapses and the chip would read
+   "check 2in 04:30". Test assertions match it with `\s` or normalise it, which is noted at each
+   site.
+7. `Session.stop()` is new. There was no teardown path to hang `wakeLock.disable()` on, so one
+   was added (it also calls `timers.stop()` and disposes the theme and wake lock effects) and
+   tested. Nothing in `main.tsx` calls it; it exists for teardown and is exercised by the tests.
+8. A booking that clears shows no toast. Section 5 specifies the toast for a booking only, and
+   the `Booked for HH:MM` line disappearing is the feedback for a clear.
+9. `tests/e2e/shift.spec.ts` now completes `Handover from theatre` where it used to skip it: the
+   post-op checks are scheduled by that completion, so skipping it left the scripted shift with
+   no timed checks at all. Tasks skipped in that shift is therefore 1, not 2; every other number
+   is unchanged. `tests/e2e/screenshots.spec.ts` moves its second fast-forward from 17 to 31
+   minutes for the same reason (the checks now start at the handover, 14 minutes later).
+10. Two pre-existing assertions on the shift label were relaxed to `/^Shift from 04:00 Tue,? 10
+    Mar$/`. See the environment note below: `toLocaleDateString('en-GB', { weekday: 'short' })`
+    returns "Tue, 10 Mar" on the Chromium available in this sandbox and "Tue 10 Mar" on newer
+    ICU, and the assertion is about the shift, not about one browser's punctuation.
+
+**Environment note (not a code issue)**
+
+`/opt/pw-browsers` holds Chromium revision 1194, but `@playwright/test` 1.63.0 in
+`node_modules` expects revision 1243, so `npx playwright test` fails to launch with "Executable
+doesn't exist"; `playwright install` is forbidden in this run and there is no other build on the
+machine. The suite was therefore run against the installed browser through a scratch
+`PLAYWRIGHT_BROWSERS_PATH` whose `chromium_headless_shell-1243` and `chromium-1243` entries are
+symlinks to the 1194 binaries. Nothing in the repository was changed for this; CI installs the
+matching browser itself. The only visible consequence was the ICU difference in deviation 10,
+verified directly: in that browser `new Date(2026, 2, 10).toLocaleDateString('en-GB', { weekday:
+'short', day: 'numeric', month: 'short' })` is `"Tue, 10 Mar"`, in Node it is `"Tue 10 Mar"`.
+
+**Open questions**
+
+- The gate was run with the browser shim above. A verifier on a machine with Chromium 1243
+  should re-run `npm run test:e2e` unshimmed; the only assertions that could differ are the two
+  shift labels, which now accept both spellings.
+- `src/sw.ts` was read and left alone: `notificationclick` still closes the notification, focuses
+  the first client under the registration scope and otherwise opens the scope. It has no unit
+  test (the file is excluded from coverage); the e2e install spec still asserts the worker takes
+  control of the page.
+- `Session.stop()` has no caller in `main.tsx`. If the orchestrator wants it called on
+  `pagehide`, that is a one-line addition in `main.tsx`.
+- The timer chip's label is cut short on a 393 px screen when the patient's name is long (the
+  fixtures' names are the worst case). With real, shorter names both fit. If the orchestrator
+  would rather the name were cut instead, the choice is the single `max-width` in the handset
+  media query.
+
+**Fix round (verifier FAIL, 2026-09-17)**
+
+The verifier returned two findings and four notes; all six are fixed with a test each, at commit
+bf7a381. F1 (spec section 5 was amended for it): the full-label timer chip never fitted at 393 px,
+so the chip now carries the step's icon (custom tasks: the two-letter code) and the countdown,
+with the full task label in a visually-hidden span for screen readers, and the 22ch handset cap in
+`ui.css` is gone. Measuring the worst row showed the chip was not the only problem: with a text
+column beside a chip column, the widest line of each side competed, so the name had 33 px of the
+147 px it needed. The header is now two independent lines, each spending its own width: the name
+(and kennel) share line one with the countdown chip, and the species, the ward status chip, the
+procedure, the intake chip and the booked collection chip share line two. Both lines are 20 px, so
+the header is still 48 px and the row still 88 px, and the procedure is now the first text to give
+way; the name is cut short only after it. Measured on the gallery's full row (long name, status
+chip, intake, booked collection, overdue check) at 393 px: name 147/147, timer chip 133/133,
+status 78/78, intake 47/47, collection 97/97, procedure 48 of 100 (ellipsised), row 88 px. That
+row is now a Playwright regression test (`a full row at 393 px keeps the name and every chip
+whole`) which compares `scrollWidth` with `clientWidth` for the name and for all four chips. N1: a
+`type="time"` box sanitises a half-typed entry to `''`, so "Save intake" stored `none` and wiped a
+real intake; `readIntake` now reads `validity.badInput` and returns undefined for an incomplete
+entry, the sheet shows the validator's message and dispatches nothing, and the add form sends `''`
+to the validator, which rejects it with the same wording. N2: `NOTES_MAX` is imported from
+`@domain/validate` instead of being redeclared. N3: `take_out` is redrawn as three curved blades
+over a ground line and `pain_score` as a face above a ticked scale; both were checked in the
+regenerated screenshot. N5: `Platform.onPageHide` is new, `main.tsx` passes
+`window.addEventListener('pagehide', fn)` and the session subscribes `stop()` to it, so a
+discarded page releases the wake lock and the timer; the wiring is tested through the fake
+platform (the alternative, testing `main.tsx` itself, cannot be imported under Vitest because of
+`virtual:pwa-register`). F2: the README claims row now cites the handover rule and the renamed
+test. Gate re-run in the worktree: lint and prettier clean; typecheck clean; `Test Files 45 passed
+(45)`, `Tests 575 passed (575)`, coverage statements 99.23% (2087/2103), branches 97.35%
+(1396/1434), `src/domain` still at its 100% thresholds; build `index-*.js` 103.96 kB (gzip
+35.82 kB), css 15.25 kB (gzip 3.21 kB), sw 17.07 kB, precache 13 entries (136.72 KiB);
+`npm run test:e2e` 40 passed (1.2m), axe clean in both themes with the new header. Screenshots
+regenerated. The e2e run again used a scratch `PLAYWRIGHT_BROWSERS_PATH`, this time in the layout
+the verifier described (`chromium_headless_shell-1243/chrome-headless-shell-linux64/
+chrome-headless-shell` symlinked to the installed 1194 headless shell, plus `chromium-1243` and
+`ffmpeg-1011`), which launches cleanly.

@@ -103,6 +103,24 @@ describe('createActionFactory', () => {
     });
   });
 
+  it('stamps a booking and omits bookedAt when the booking is cleared', () => {
+    const booked = factory.bookDischarge('p', FIXED_NOW_ISO);
+    expect(booked).toMatchObject({
+      type: 'BOOK_DISCHARGE',
+      patientId: 'p',
+      bookedAt: FIXED_NOW_ISO,
+      at: FIXED_NOW_ISO,
+    });
+    const cleared = factory.bookDischarge('p', undefined);
+    expect(cleared).not.toHaveProperty('bookedAt');
+    expect(cleared).toMatchObject({ type: 'BOOK_DISCHARGE', patientId: 'p' });
+    expect(factory.setIntake('p', '09:15')).toEqual({
+      type: 'SET_INTAKE',
+      patientId: 'p',
+      intake: '09:15',
+    });
+  });
+
   it('discharges through COMPLETE_TASK while the discharge task is to do, else DISCHARGE', () => {
     const fresh = patientFresh();
     expect(dischargeIsUndoable(fresh)).toBe(true);
@@ -134,6 +152,7 @@ describe('createActionFactory', () => {
         theme: 'system' as const,
         purgeDays: 30,
         showOwnerPhone: false,
+        keepScreenOn: false,
       },
     };
     expect(factory.importData(data)).toEqual({ type: 'IMPORT', data });

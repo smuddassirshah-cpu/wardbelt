@@ -7,9 +7,12 @@ import { expect, test } from '@playwright/test';
 import {
   addPatient,
   axeViolations,
+  bookDischarge,
   CHECK_OFFSETS,
   clockText,
+  closeSheet,
   completeCurrent,
+  completeThroughHandover,
   completeThroughTheatre,
   localMinutes,
   nav,
@@ -35,9 +38,11 @@ test('adds a patient from the board in at most 8 taps', async ({ page }) => {
   await expect(added.locator('.row__species')).toHaveText('Cat');
   await expect(added.getByRole('group')).toHaveAttribute(
     'aria-label',
-    '0 of 19 done, current: Handover and admit',
+    '0 of 18 done, current: Handover and admit',
   );
-  await expect(added.locator('.belt__square')).toHaveCount(19);
+  await expect(added.locator('.belt__square')).toHaveCount(18);
+  await expect(added.locator('.belt__square svg[data-icon="handover_admit"]')).toHaveCount(1);
+  await expect(added.locator('.row__meta > .chip')).toHaveText('Status Waiting');
   await expect(added.getByText('10:00')).toBeVisible();
 });
 
@@ -53,24 +58,37 @@ test('completes steps by tapping the current cell', async ({ page }) => {
   await expect(target.getByRole('button', { name: 'Complete Premed' })).toBeVisible();
   await expect(target.getByRole('group')).toHaveAttribute(
     'aria-label',
-    '3 of 19 done, current: Premed',
+    '3 of 18 done, current: Premed',
   );
   await expect(
     page.getByRole('status').filter({ hasText: 'Draw up meds completed' }),
   ).toBeVisible();
 });
 
-test('completing in theatre schedules the four checks at +15/30/45/60', async ({ page }) => {
+test('the four checks are scheduled by the handover, not by in theatre', async ({ page }) => {
   await page.clock.install({ time: new Date(2026, 2, 10, 10, 0, 0) });
   await page.goto('/');
   await ready(page);
   await addPatient(page, 'Fixture Gamma', 'Spay');
   await completeThroughTheatre(page, 'Fixture Gamma');
   const target = row(page, 'Fixture Gamma');
-  await expect(target.locator('.chip--warning')).toHaveText(/C1 in 15:00/);
-  await expect(
-    target.getByRole('button', { name: 'Complete Handover from theatre' }),
-  ).toBeVisible();
+  await expect(target.locator('.chip--warning')).toHaveCount(0);
+  await expect(target.locator('.row__meta > .chip')).toHaveText('Status In theatre');
+  const waiting = await openSheet(page, 'Fixture Gamma');
+  await expect(waiting.getByLabel('Back from theatre at')).toHaveValue('');
+  for (let i = 1; i <= 4; i += 1) {
+    await expect(taskItem(waiting, `Post-op check ${i}`).locator('.task__meta')).toContainText(
+      'To do',
+    );
+  }
+  await closeSheet(waiting);
+
+  await page.clock.fastForward(5 * 60_000);
+  await completeCurrent(target, 'Handover from theatre');
+  await expect(target.locator('.chip--warning')).toHaveText(/\sin 15:00$/);
+  await expect(target.locator('.chip--warning .visually-hidden')).toHaveText('Post-op check 1');
+  await expect(target.locator('.chip--warning svg[data-icon="check_1"]')).toHaveCount(1);
+  await expect(target.locator('.row__meta > .chip')).toHaveText('Status Recovery');
 
   const sheet = await openSheet(page, 'Fixture Gamma');
   const returned = await sheet.getByLabel('Back from theatre at').inputValue();
@@ -89,12 +107,14 @@ test('an overdue check moves the row to the top under a fake clock', async ({ pa
   await ready(page);
   await addPatient(page, 'Fixture Delta', 'Castrate');
   await addPatient(page, 'Fixture Epsilon', 'Lump removal');
-  await completeThroughTheatre(page, 'Fixture Epsilon');
+  await completeThroughHandover(page, 'Fixture Epsilon');
   await expect(page.locator('.row__name')).toHaveText(['Fixture Delta', 'Fixture Epsilon']);
 
   await page.clock.fastForward(16 * 60_000);
   const late = row(page, 'Fixture Epsilon');
-  await expect(late.locator('.chip--danger')).toHaveText(/C1 overdue 01:0\d/);
+  await expect(late.locator('.chip--danger')).toHaveText(/\soverdue 01:0\d$/);
+  await expect(late.locator('.chip--danger .visually-hidden')).toHaveText('Post-op check 1');
+  await expect(late.locator('.chip--danger svg[data-icon="check_1"]')).toHaveCount(1);
   await expect(late).toHaveAttribute('data-urgency', 'overdue');
   await expect(late.locator('.belt__square--overdue')).toHaveCount(1);
   await expect(page.locator('.row__name')).toHaveText(['Fixture Epsilon', 'Fixture Delta']);
@@ -117,7 +137,7 @@ test('adds a custom task from the sheet after the chosen task', async ({ page })
   await sheet.getByRole('button', { name: 'Add task' }).click();
 
   const items = sheet.locator('li.task');
-  await expect(items).toHaveCount(20);
+  await expect(items).toHaveCount(19);
   await expect(items.nth(3).locator('.task__label')).toHaveText('Premed');
   await expect(items.nth(4).locator('.task__label')).toHaveText('Bandage check');
   await expect(items.nth(4).locator('.belt__square')).toHaveText('BA');
@@ -125,8 +145,8 @@ test('adds a custom task from the sheet after the chosen task', async ({ page })
   await expect(items.nth(4).locator('.task__meta')).toContainText(`Due ${due.slice(11)}`);
   await sheet.getByRole('button', { name: 'Close' }).click();
   const cells = row(page, 'Fixture Zeta').locator('.belt__square');
-  await expect(cells).toHaveCount(20);
-  await expect(cells.nth(3)).toHaveText('PM');
+  await expect(cells).toHaveCount(19);
+  await expect(cells.nth(3).locator('svg')).toHaveAttribute('data-icon', 'premed');
   await expect(cells.nth(4)).toHaveText('BA');
 });
 
@@ -154,6 +174,49 @@ test('skips a task, undoes from the toast and from the sheet', async ({ page }) 
   await expect(sheet.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   await sheet.getByRole('button', { name: 'Close' }).click();
   await expect(row(page, 'Fixture Eta').locator('.belt__square--skipped')).toHaveCount(0);
+});
+
+test('books a collection time, clears it, rebooks it and then discharges', async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 2, 10, 10, 0, 0) });
+  await page.goto('/');
+  await ready(page);
+  await addPatient(page, 'Fixture Sigma', 'Dental');
+  const target = row(page, 'Fixture Sigma');
+  await expect(target.locator('.row__side .chip')).toHaveCount(0);
+
+  await bookDischarge(page, 'Fixture Sigma', '15:30');
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Discharge booked for 15:30' }),
+  ).toBeVisible();
+  const home = target.locator('.row__side .chip', { hasText: 'Home 15:30' });
+  await expect(home).toBeVisible();
+  await expect(home).not.toHaveClass(/chip--warning/);
+
+  const sheet = await openSheet(page, 'Fixture Sigma');
+  await sheet.getByRole('button', { name: 'Book discharge' }).click();
+  await expect(sheet.getByLabel('Collection time')).toHaveValue('15:30');
+  await sheet.getByRole('button', { name: 'Clear booking' }).click();
+  await expect(sheet.getByText('Booked for 15:30')).toBeHidden();
+  await closeSheet(sheet);
+  await expect(target.locator('.row__side .chip')).toHaveCount(0);
+
+  await bookDischarge(page, 'Fixture Sigma', '09:30');
+  await expect(target.locator('.chip--warning', { hasText: 'Home 09:30' })).toBeVisible();
+  await expect(target.getByRole('button', { name: /^Complete / })).toBeVisible();
+
+  const last = await openSheet(page, 'Fixture Sigma');
+  await last.getByRole('button', { name: 'Discharge', exact: true }).click();
+  await expect(last.getByRole('button', { name: /^Discharged \d\d:\d\d$/ })).toBeDisabled();
+  await expect(last.getByText('Booked for 09:30')).toBeVisible();
+  await expect(last.getByRole('button', { name: 'Book discharge' })).toHaveCount(0);
+  await closeSheet(last);
+
+  await expect(row(page, 'Fixture Sigma')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show discharged (1)' }).click();
+  const discharged = row(page, 'Fixture Sigma');
+  await expect(discharged).toBeVisible();
+  await expect(discharged.locator('.row__side .chip')).toHaveCount(0);
+  await expect(discharged.locator('.row__meta > .chip')).toHaveCount(0);
 });
 
 test('discharging moves the row under Show discharged', async ({ page }) => {
@@ -197,7 +260,7 @@ test('reloads offline from the service worker with data intact', async ({ page, 
   await expect(row(page, 'Fixture Iota')).toBeVisible();
   await expect(row(page, 'Fixture Iota').getByRole('group')).toHaveAttribute(
     'aria-label',
-    '0 of 19 done, current: Handover and admit',
+    '0 of 18 done, current: Handover and admit',
   );
   await context.setOffline(false);
 });

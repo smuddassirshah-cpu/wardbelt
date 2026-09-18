@@ -2,9 +2,9 @@
 // profile under the Playwright clock (10:00 local, Tue 10 Mar 2026) so the header clock, the
 // due times and the shift label are the same on every run. The board is seeded through the
 // real Add sheet with synthetic names only: a dog back from theatre with post-op check 1 done
-// on time and check 2 overdue (danger chip, pulsing cell, sorted first), a cat in pre-op with a done and a skipped
-// cell and a 10:00 intake chip, a fresh rabbit, and a discharged fourth patient shown through
-// the board's toggle. The PNGs land in docs/screenshots/ only when WARDBELT_EVIDENCE is set
+// on time and check 2 overdue (danger chip, pulsing cell, sorted first), a cat in pre-op with a
+// done and a skipped cell, a 10:00 intake chip and a booked collection, a fresh rabbit, and a
+// discharged fourth patient shown through the board's toggle. The PNGs land in docs/screenshots/ only when WARDBELT_EVIDENCE is set
 // (the same switch as the axe evidence), so an ordinary e2e run never rewrites a tracked file;
 // otherwise they go to the Playwright output directory and are attached to the report. Each
 // file is asserted under 300 kB because they are committed. `animations: 'disabled'` settles
@@ -14,6 +14,7 @@ import { mkdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   addPatient,
+  bookDischarge,
   closeSheet,
   completeCurrent,
   completeThroughTheatre,
@@ -65,6 +66,8 @@ async function seedBoard(page: Page): Promise<void> {
   await expect(taskItem(cat, 'Bloods').locator('.belt__square--skipped')).toHaveCount(1);
   await closeSheet(cat);
 
+  await bookDischarge(page, 'Fixture Cat Two', '16:00');
+
   await addPatient(page, 'Fixture Rabbit Three', 'Castrate', { species: 'Rabbit' });
   await addPatient(page, 'Fixture Other Four', 'Wound check', { species: 'Other' });
   await dischargePatient(page, 'Fixture Other Four');
@@ -73,10 +76,11 @@ async function seedBoard(page: Page): Promise<void> {
   const late = row(page, 'Fixture Dog One');
   await completeCurrent(late, 'Handover from theatre');
   await completeCurrent(late, 'Post-op check 1');
-  await expect(late.locator('.chip--warning')).toHaveText(/C2 in/);
+  await expect(late.locator('.chip--warning')).toHaveText(/\sin \d\d:\d\d$/);
 
-  await page.clock.fastForward(17 * 60_000);
-  await expect(late.locator('.chip--danger')).toHaveText(/C2 overdue/);
+  await page.clock.fastForward(31 * 60_000);
+  await expect(late.locator('.chip--danger')).toHaveText(/\soverdue/);
+  await expect(late.locator('.chip--danger svg[data-icon="check_2"]')).toHaveCount(1);
   await expect(late).toHaveAttribute('data-urgency', 'overdue');
   await expect(page.locator('.row__name').first()).toHaveText('Fixture Dog One');
   await expect(page.getByRole('status').filter({ hasText: /completed|skipped/ })).toHaveCount(0);
@@ -117,9 +121,9 @@ test('README screenshots: board, sheets, summary, settings and dark board', asyn
   await nav(page).getByRole('button', { name: 'Summary' }).click();
   const summary = page.getByRole('dialog', { name: 'Shift summary' });
   await expect(summary).toBeVisible();
-  await expect(summary.getByText('Shift from 04:00 Tue 10 Mar')).toBeVisible();
+  await expect(summary.getByText(/^Shift from 04:00 Tue,? 10 Mar$/)).toBeVisible();
   await expect(summary.locator('.stats__value')).toHaveText([
-    '10',
+    '9',
     '1',
     '100%',
     '1',
@@ -138,6 +142,6 @@ test('README screenshots: board, sheets, summary, settings and dark board', asyn
 
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect.poll(() => bodyBackground(page)).toBe(DARK_BG);
-  await expect(row(page, 'Fixture Dog One').locator('.chip--danger')).toHaveText(/C2 overdue/);
+  await expect(row(page, 'Fixture Dog One').locator('.chip--danger')).toHaveText(/\soverdue/);
   await capture(page, info, 'board-dark');
 });

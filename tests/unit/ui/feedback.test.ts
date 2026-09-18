@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   beltCompleteFeedback,
   completionFeedback,
+  dueTone,
   prefersReducedMotion,
   resetAudioForTests,
 } from '../../../src/ui/feedback';
@@ -14,8 +15,8 @@ afterEach(() => {
 class FakeOscillator {
   frequency = { value: 0 };
   connect = vi.fn(() => this);
-  start = vi.fn();
-  stop = vi.fn();
+  start = vi.fn<(when?: number) => void>();
+  stop = vi.fn<(when?: number) => void>();
 }
 
 class FakeGain {
@@ -123,6 +124,58 @@ describe('feedback', () => {
     expect(() => completionFeedback({ sound: true, reducedMotion: false, onError })).not.toThrow();
     expect(onError).toHaveBeenCalledTimes(1);
     expect(() => completionFeedback({ sound: true, reducedMotion: false })).not.toThrow();
+  });
+
+  it('plays two notes for a due check and nothing when sound is off', () => {
+    vi.stubGlobal('navigator', {});
+    const { FakeAudioContext, oscillators } = fakeAudioContext('running');
+    vi.stubGlobal('AudioContext', FakeAudioContext);
+    dueTone({ sound: false });
+    expect(oscillators).toHaveLength(0);
+    dueTone({ sound: true });
+    expect(oscillators).toHaveLength(2);
+    expect(oscillators[0]?.frequency.value).toBe(880);
+    expect(oscillators[0]?.start).toHaveBeenCalledWith(0);
+    expect(oscillators[0]?.stop).toHaveBeenCalledWith(0.15);
+    expect(oscillators[1]?.frequency.value).toBe(660);
+    expect(oscillators[1]?.start.mock.calls[0]?.[0]).toBeCloseTo(0.23, 5);
+    expect(oscillators[1]?.stop.mock.calls[0]?.[0]).toBeCloseTo(0.38, 5);
+  });
+
+  it('resumes a suspended context for the due tone and reports a failure', async () => {
+    vi.stubGlobal('navigator', {});
+    const failing = fakeAudioContext('suspended', true);
+    vi.stubGlobal('AudioContext', failing.FakeAudioContext);
+    const onError = vi.fn();
+    dueTone({ sound: true, onError });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(failing.oscillators).toHaveLength(0);
+    resetAudioForTests();
+    const ok = fakeAudioContext('suspended');
+    vi.stubGlobal('AudioContext', ok.FakeAudioContext);
+    dueTone({ sound: true });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ok.oscillators).toHaveLength(2);
+  });
+
+  it('never throws for the due tone when audio is missing or blocked', () => {
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('AudioContext', undefined);
+    const onError = vi.fn();
+    expect(() => {
+      dueTone({ sound: true, onError });
+    }).not.toThrow();
+    expect(onError).not.toHaveBeenCalled();
+    vi.stubGlobal('AudioContext', function Blocked() {
+      throw new Error('blocked');
+    });
+    expect(() => {
+      dueTone({ sound: true, onError });
+    }).not.toThrow();
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 
   it('reads prefers-reduced-motion with feature detection', () => {

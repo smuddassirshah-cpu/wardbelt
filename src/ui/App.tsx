@@ -150,6 +150,12 @@ function PatientRoute({ patient, session, router }: PatientRouteProps) {
       onSetTheatreReturn={(returnedAt) => {
         actions.setTheatreReturn(patient.id, returnedAt);
       }}
+      onSetIntake={(intake) => {
+        actions.setIntake(patient.id, intake);
+      }}
+      onBookDischarge={(bookedAt) => {
+        actions.bookDischarge(patient.id, bookedAt);
+      }}
       onDischarge={() => {
         actions.discharge(patient.id);
       }}
